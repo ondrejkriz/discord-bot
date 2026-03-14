@@ -1,6 +1,8 @@
 import discord
 from discord import app_commands
 import time
+import asyncio
+from datetime import datetime
 import psycopg2
 from config import DISCORD_TOKEN, DATABASE_URL
 
@@ -104,6 +106,51 @@ def build_leaderboard():
         )
     return text
 
+# /countdown
+@bot.tree.command(name="countdown", description="Odpočet do určitého data")
+@app_commands.describe(
+    year="Rok (např. 2026)",
+    month="Měsíc (1-12)",
+    day="Den (1-31)",
+    hour="Hodina (0-23)",
+    minute="Minuta (0-59)"
+)
+async def countdown(
+    interaction: discord.Interaction,
+    year: int,
+    month: int,
+    day: int,
+    hour: int = 0,
+    minute: int = 0
+):
+    try:
+        target_date = datetime(year, month, day, hour, minute)
+        now = datetime.now()
+        
+        if target_date <= now:
+            await interaction.response.send_message("Datum musí být v budoucnosti!", ephemeral=True)
+            return
+        
+        await interaction.response.send_message(f"⏱️ Odpočet do {target_date.strftime('%d.%m.%Y %H:%M')}")
+        message = await interaction.original_response()
+        
+        while True:
+            now = datetime.now()
+            if now >= target_date:
+                await message.edit(content="✅ Čas nastal!")
+                break
+            
+            diff = target_date - now
+            days = diff.days
+            hours = diff.seconds // 3600
+            minutes = (diff.seconds % 3600) // 60
+            seconds = diff.seconds % 60
+            
+            await message.edit(content=f"⏱️ Zbývá: {days}d {hours}h {minutes}m {seconds}s")
+            await asyncio.sleep(1)
+    
+    except ValueError:
+        await interaction.response.send_message("Neplatné datum!", ephemeral=True)
 
 # VOICE TRACKING
 @bot.event

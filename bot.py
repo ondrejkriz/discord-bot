@@ -102,7 +102,7 @@ def build_leaderboard():
     ORDER BY (messages + voice_seconds/60) DESC
     """)
     rows = cursor.fetchall()
-    text = "🏆 Pracovní docházka 🏆\n\n"
+    text = "🏆 LEADERBOARD 🏆\n\n"
     for i, row in enumerate(rows, 1):
         username, messages, voice_secs = row
         hours = voice_secs // 3600

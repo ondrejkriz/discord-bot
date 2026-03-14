@@ -80,19 +80,19 @@ async def leaderboard(interaction: discord.Interaction):
 def get_rank(voice_seconds):
     hours = voice_seconds / 3600
     if hours >= 98:
-        return "🔷 Challenger"
+        return "👑 Challenger"
     elif hours >= 84:
-        return "💎 Master"
+        return "🟪 Master"
     elif hours >= 70:
-        return "💎 Diamond"
+        return "🟦 Diamond"
     elif hours >= 56:
-        return "🪙 Platinum"
+        return "🟩 Platinum"
     elif hours >= 28:
-        return "🥇 Gold"
+        return "🟨 Gold"
     elif hours >= 14:
-        return "🥈 Silver"
+        return "⬜ Silver"
     else:
-        return "🥉 Bronze"
+        return "🟫 Bronze"
 
 
 def build_leaderboard():
@@ -117,14 +117,14 @@ def build_leaderboard():
 @bot.tree.command(name="ranks", description="Zobraz tabulku ranků a potřebné hodiny")
 async def ranks(interaction: discord.Interaction):
     text = (
-        "🏅 **Tabulka ranků**\n\n"
-        "🥉 **Bronze** — 0 h\n"
-        "🥈 **Silver** — 14 h\n"
-        "🥇 **Gold** — 28 h\n"
-        "🪙 **Platinum** — 56 h\n"
-        "💎 **Diamond** — 70 h\n"
-        "💎 **Master** — 84 h\n"
-        "🔷 **Challenger** — 98 h\n"
+        "🏅 **Ranks**\n\n"
+        "🟫 **Bronze** — 0 h\n"
+        "⬜ **Silver** — 14 h\n"
+        "🟨 **Gold** — 28 h\n"
+        "🟩 **Platinum** — 56 h\n"
+        "🟦 **Diamond** — 70 h\n"
+        "🟪 **Master** — 84 h\n"
+        "👑 **Challenger** — 98 h\n"
     )
     await interaction.response.send_message(text)
 

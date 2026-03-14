@@ -77,15 +77,22 @@ async def leaderboard(interaction: discord.Interaction):
     await interaction.response.send_message(text)
 
 
-RANK_TITLES = {
-    1: "👑 Mistr KADIČ 👑",
-    2: "🤡 Wannabe Mistr kadič 🤡",
-    3: "🚽 Kaďet 🚽",
-    4: "💩 Srágora 💩",
-    5: "💩 Majsneros 💩",
-    6: "💩 Liboros 💩",
-    7: "💩 Protržená prdel 💩",
-}
+def get_rank(voice_seconds):
+    hours = voice_seconds / 3600
+    if hours >= 98:
+        return "🔷 Challenger"
+    elif hours >= 84:
+        return "💎 Master"
+    elif hours >= 70:
+        return "💎 Diamond"
+    elif hours >= 56:
+        return "🪙 Platinum"
+    elif hours >= 28:
+        return "🥇 Gold"
+    elif hours >= 14:
+        return "🥈 Silver"
+    else:
+        return "🥉 Bronze"
 
 
 def build_leaderboard():
@@ -93,18 +100,34 @@ def build_leaderboard():
     SELECT username, messages, voice_seconds
     FROM user_stats
     ORDER BY (messages + voice_seconds/60) DESC
-    LIMIT 7
     """)
     rows = cursor.fetchall()
-    text = "🏆Pracovní docházka 🏆\n\n"
+    text = "🏆 Pracovní docházka 🏆\n\n"
     for i, row in enumerate(rows, 1):
-        hours = row[2] // 3600
-        minutes = (row[2] % 3600) // 60
-        title = RANK_TITLES.get(i, str(i))
+        username, messages, voice_secs = row
+        hours = voice_secs // 3600
+        minutes = (voice_secs % 3600) // 60
+        rank = get_rank(voice_secs)
         text += (
-            f"{title} — {row[0]} | **{row[1]} msgs** | **{hours}h {minutes}m voice**\n"
+            f"**#{i}** {rank} — {username} | **{messages} msgs** | **{hours}h {minutes}m voice**\n"
         )
     return text
+
+# /ranks
+@bot.tree.command(name="ranks", description="Zobraz tabulku ranků a potřebné hodiny")
+async def ranks(interaction: discord.Interaction):
+    text = (
+        "🏅 **Tabulka ranků**\n\n"
+        "🥉 **Bronze** — 0 h\n"
+        "🥈 **Silver** — 14 h\n"
+        "🥇 **Gold** — 28 h\n"
+        "🪙 **Platinum** — 56 h\n"
+        "💎 **Diamond** — 70 h\n"
+        "💎 **Master** — 84 h\n"
+        "🔷 **Challenger** — 98 h\n"
+    )
+    await interaction.response.send_message(text)
+
 
 # /countdown
 @bot.tree.command(name="countdown", description="Odpočet do určitého data")

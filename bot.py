@@ -109,6 +109,7 @@ def build_leaderboard():
 # /countdown
 @bot.tree.command(name="countdown", description="Odpočet do určitého data")
 @app_commands.describe(
+    name="Název odpočtu (např. Vánoce)",
     year="Rok (např. 2026)",
     month="Měsíc (1-12)",
     day="Den (1-31)",
@@ -117,6 +118,7 @@ def build_leaderboard():
 )
 async def countdown(
     interaction: discord.Interaction,
+    name: str,
     year: int,
     month: int,
     day: int,
@@ -131,13 +133,13 @@ async def countdown(
             await interaction.response.send_message("Datum musí být v budoucnosti!", ephemeral=True)
             return
         
-        await interaction.response.send_message(f"⏱️ Odpočet do {target_date.strftime('%d.%m.%Y %H:%M')}")
+        await interaction.response.send_message(f"⏱️ {name}: {target_date.strftime('%d.%m.%Y %H:%M')}")
         message = await interaction.original_response()
         
         while True:
             now = datetime.now()
             if now >= target_date:
-                await message.edit(content="✅ Čas nastal!")
+                await message.edit(content=f"✅ {name} - Čas nastal!")
                 break
             
             diff = target_date - now
@@ -146,7 +148,7 @@ async def countdown(
             minutes = (diff.seconds % 3600) // 60
             seconds = diff.seconds % 60
             
-            await message.edit(content=f"⏱️ Zbývá: {days}d {hours}h {minutes}m {seconds}s")
+            await message.edit(content=f"⏱️ {name}: {days}d {hours}h {minutes}m {seconds}s")
             await asyncio.sleep(1)
     
     except ValueError:

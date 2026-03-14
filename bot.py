@@ -162,37 +162,50 @@ async def on_voice_state_update(member, before, after):
 
     # join
     if before.channel is None and after.channel is not None:
-        cursor.execute(
-            """
-        INSERT INTO user_stats (user_id, username, messages, voice_seconds, voice_join_time)
-        VALUES (%s, %s, 0, 0, %s)
-        ON CONFLICT (user_id)
-        DO UPDATE SET voice_join_time = EXCLUDED.voice_join_time, username = EXCLUDED.username
-        """,
-            (user_id, username, int(time.time())),
-        )
+        if not after.self_deaf and not after.deaf:
+            cursor.execute("""
+            INSERT INTO user_stats (user_id, username, messages, voice_seconds, voice_join_time)
+            VALUES (%s, %s, 0, 0, %s)
+            ON CONFLICT (user_id)
+            DO UPDATE SET voice_join_time = EXCLUDED.voice_join_time, username = EXCLUDED.username
+            """, (user_id, username, int(time.time())))
 
     # leave
     if before.channel is not None and after.channel is None:
-        cursor.execute(
-            """
-        SELECT voice_join_time FROM user_stats
-        WHERE user_id=%s
-        """,
-            (user_id,),
-        )
+        cursor.execute("SELECT voice_join_time FROM user_stats WHERE user_id=%s", (user_id,))
         row = cursor.fetchone()
         if row and row[0]:
             duration = int(time.time()) - row[0]
-            cursor.execute(
-                """
+            cursor.execute("""
             UPDATE user_stats
-            SET voice_seconds = voice_seconds + %s,
-                voice_join_time = NULL
+            SET voice_seconds = voice_seconds + %s, voice_join_time = NULL
             WHERE user_id=%s
-            """,
-                (duration, user_id),
-            )
+            """, (duration, user_id))
+
+    # self-deaf / undeaf (bez změny kanálu)
+    if before.channel is not None and after.channel is not None and before.channel == after.channel:
+        deaf_now = after.self_deaf or after.deaf
+        deaf_before = before.self_deaf or before.deaf
+        if deaf_before != deaf_now:
+            if deaf_now:
+                # Nasadil hluchotu → zastav timer
+                cursor.execute("SELECT voice_join_time FROM user_stats WHERE user_id=%s", (user_id,))
+                row = cursor.fetchone()
+                if row and row[0]:
+                    duration = int(time.time()) - row[0]
+                    cursor.execute("""
+                    UPDATE user_stats
+                    SET voice_seconds = voice_seconds + %s, voice_join_time = NULL
+                    WHERE user_id=%s
+                    """, (duration, user_id))
+            else:
+                # Sundal hluchotu → spusť timer
+                cursor.execute("""
+                INSERT INTO user_stats (user_id, username, messages, voice_seconds, voice_join_time)
+                VALUES (%s, %s, 0, 0, %s)
+                ON CONFLICT (user_id)
+                DO UPDATE SET voice_join_time = EXCLUDED.voice_join_time, username = EXCLUDED.username
+                """, (user_id, username, int(time.time())))
 
 
 bot.run(DISCORD_TOKEN)

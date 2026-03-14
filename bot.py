@@ -76,7 +76,7 @@ async def leaderboard(interaction: discord.Interaction):
 
 
 RANK_TITLES = {
-    1: "👑 Mistr KADIČ",
+    1: "👑 Mistr KADIČ 👑",
     2: "🤡 Wannabe Mistr kadič 🤡",
     3: "🚽 Kaďet 🚽",
     4: "💩 Srágora 💩",

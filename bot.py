@@ -7,12 +7,12 @@ import psycopg2
 import aiohttp
 from config import DISCORD_TOKEN, DATABASE_URL, RIOT_API_KEY
 
-# Připojení k DB
+# DB connection
 conn = psycopg2.connect(DATABASE_URL, sslmode="require")
 conn.autocommit = True
 cursor = conn.cursor()
 
-# Vytvoření tabulky pokud neexistuje
+# Create table if not exists
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS user_stats (
     user_id TEXT PRIMARY KEY,
@@ -52,7 +52,7 @@ async def on_ready():
     await bot.tree.sync()
 
 
-# MESSAGE TRACKING
+# Message tracking
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -130,7 +130,7 @@ async def ranks(interaction: discord.Interaction):
     await interaction.response.send_message(text)
 
 
-# VOICE TRACKING
+# Voice tracking
 @bot.event
 async def on_voice_state_update(member, before, after):
     user_id = str(member.id)
@@ -166,7 +166,7 @@ async def on_voice_state_update(member, before, after):
                 (duration, user_id),
             )
 
-    # self-deaf / undeaf (bez změny kanálu)
+    # self-deaf / undeaf (anticheat)
     if (
         before.channel is not None
         and after.channel is not None
@@ -176,7 +176,6 @@ async def on_voice_state_update(member, before, after):
         deaf_before = before.self_deaf or before.deaf
         if deaf_before != deaf_now:
             if deaf_now:
-                # Nasadil hluchotu → zastav timer
                 cursor.execute(
                     "SELECT voice_join_time FROM user_stats WHERE user_id=%s",
                     (user_id,),
@@ -193,7 +192,6 @@ async def on_voice_state_update(member, before, after):
                         (duration, user_id),
                     )
             else:
-                # Sundal hluchotu → spusť timer
                 cursor.execute(
                     """
                 INSERT INTO user_stats (user_id, username, messages, voice_seconds, voice_join_time)
@@ -228,7 +226,7 @@ async def lol(
     routing = "europe" if region in ("euw1", "eun1", "tr1", "ru") else "americas" if region in ("na1", "br1", "la1", "la2") else "asia"
 
     async with aiohttp.ClientSession() as session:
-        # 1. PUUID podle Riot ID
+        # PUUID by RIOTID
         account_url = f"https://{routing}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{jmeno}/{tag}"
         async with session.get(account_url, headers=headers) as resp:
             if resp.status == 404:
@@ -240,7 +238,7 @@ async def lol(
             account = await resp.json()
             puuid = account["puuid"]
 
-        # 2. Ranked data přímo přes PUUID
+        # Ranked data by PUUID
         ranked_url = f"https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}"
         async with session.get(ranked_url, headers=headers) as resp:
             if resp.status != 200:
@@ -254,7 +252,7 @@ async def lol(
         "MASTER": "🔮", "GRANDMASTER": "🔴", "CHALLENGER": "🔷"
     }
 
-    # Najdi Solo/Duo queue
+    # Solo/Duo queue
     solo = next((e for e in entries if e["queueType"] == "RANKED_SOLO_5x5"), None)
     flex = next((e for e in entries if e["queueType"] == "RANKED_FLEX_SR"), None)
 

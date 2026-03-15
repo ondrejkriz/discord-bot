@@ -44,12 +44,12 @@ bot = MyClient()
 @bot.event
 async def on_ready():
     print(f"Bot je online jako {bot.user}")
-    bot.tree.clear_commands(guild=None)
-    await bot.tree.sync()
     for guild in bot.guilds:
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
         print(f"Příkazy synkovány do: {guild.name}")
+    bot.tree.clear_commands(guild=None)
+    await bot.tree.sync()
 
 
 # MESSAGE TRACKING
@@ -110,7 +110,7 @@ def build_leaderboard():
     """)
     rows = cursor.fetchall()
     text = "🏆 LEADERBOARD 🏆\n\n"
-    for i, row in enumerate(rows,1):
+    for i, row in enumerate(rows, 1):
         username, messages, voice_secs = row
         hours = voice_secs // 3600
         minutes = (voice_secs % 3600) // 60

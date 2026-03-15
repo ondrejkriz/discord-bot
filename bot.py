@@ -242,7 +242,7 @@ async def lol(
                 await interaction.followup.send(f"❌ Nepodařilo se načíst summoner data ({resp.status}).")
                 return
             summoner = await resp.json()
-            summoner_id = summoner["summonerId"]
+            summoner_id = summoner["id"]
 
         # 3. Ranked data
         ranked_url = f"https://{region}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summoner_id}"

@@ -8,7 +8,7 @@ import aiohttp
 from config import DISCORD_TOKEN, DATABASE_URL, RIOT_API_KEY
 
 # Připojení k DB
-conn = psycopg2.connect(DATABASE_URL)
+conn = psycopg2.connect(DATABASE_URL, sslmode="require")
 conn.autocommit = True
 cursor = conn.cursor()
 

@@ -217,6 +217,10 @@ async def lol(
     tag: str,
     region: str = "euw1"
 ):
+    if not RIOT_API_KEY:
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven na serveru.", ephemeral=True)
+        return
+
     await interaction.response.defer()
 
     headers = {"X-Riot-Token": RIOT_API_KEY}

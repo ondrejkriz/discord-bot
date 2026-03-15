@@ -35,7 +35,7 @@ class MyClient(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        await self.tree.sync()
+        pass
 
 
 bot = MyClient()
@@ -44,6 +44,10 @@ bot = MyClient()
 @bot.event
 async def on_ready():
     print(f"Bot je online jako {bot.user}")
+    for guild in bot.guilds:
+        bot.tree.copy_global_to(guild=guild)
+        await bot.tree.sync(guild=guild)
+        print(f"Příkazy synkovány do: {guild.name}")
 
 
 # MESSAGE TRACKING

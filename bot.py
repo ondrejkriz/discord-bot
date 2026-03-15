@@ -235,17 +235,8 @@ async def lol(
             account = await resp.json()
             puuid = account["puuid"]
 
-        # 2. Summoner ID podle PUUID
-        summoner_url = f"https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}"
-        async with session.get(summoner_url, headers=headers) as resp:
-            if resp.status != 200:
-                await interaction.followup.send(f"❌ Nepodařilo se načíst summoner data ({resp.status}).")
-                return
-            summoner = await resp.json()
-            summoner_id = summoner["id"]
-
-        # 3. Ranked data
-        ranked_url = f"https://{region}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summoner_id}"
+        # 2. Ranked data přímo přes PUUID
+        ranked_url = f"https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}"
         async with session.get(ranked_url, headers=headers) as resp:
             if resp.status != 200:
                 await interaction.followup.send(f"❌ Nepodařilo se načíst ranked data ({resp.status}).")

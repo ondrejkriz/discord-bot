@@ -71,6 +71,11 @@ async def on_message(message):
         (user_id, username),
     )
 
+# old !leaderboard
+if message.content == "!leaderboard":
+    text = build_leaderboard()
+    await message.channel.send(text)
+
 # /leaderboard
 @bot.tree.command(name="leaderboard", description="Zobraz žebříček aktivních uživatelů")
 async def leaderboard(interaction: discord.Interaction):

@@ -279,6 +279,312 @@ async def lol(
     await interaction.followup.send(text)
 
 
+# --- Riot helpers ---
+
+champion_cache = {}
+
+QUEUE_NAMES = {
+    420: "Solo/Duo",
+    440: "Flex",
+    450: "ARAM",
+    400: "Normal Draft",
+    430: "Normal Blind",
+    900: "URF",
+    1020: "One for All",
+    1300: "Nexus Blitz",
+    1400: "Ultimate Spellbook",
+    0: "Custom",
+}
+
+
+async def load_champion_cache(session):
+    global champion_cache
+    if champion_cache:
+        return
+    try:
+        async with session.get("https://ddragon.leagueoflegends.com/api/versions.json") as resp:
+            versions = await resp.json()
+            version = versions[0]
+        async with session.get(f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json") as resp:
+            data = await resp.json()
+            for champ in data["data"].values():
+                champion_cache[int(champ["key"])] = champ["name"]
+    except Exception:
+        pass
+
+
+def get_routing(region):
+    if region in ("euw1", "eun1", "tr1", "ru"):
+        return "europe"
+    if region in ("na1", "br1", "la1", "la2"):
+        return "americas"
+    return "asia"
+
+
+async def fetch_puuid(session, jmeno, tag, routing, headers):
+    url = f"https://{routing}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{jmeno}/{tag}"
+    async with session.get(url, headers=headers) as resp:
+        if resp.status == 404:
+            return None, "not_found"
+        if resp.status != 200:
+            return None, str(resp.status)
+        data = await resp.json()
+        return data["puuid"], None
+
+
+# /ingame
+@bot.tree.command(name="ingame", description="Zkontroluj jestli hráč právě hraje")
+@app_commands.describe(
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)"
+)
+async def ingame(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
+    if not RIOT_API_KEY:
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
+        return
+    await interaction.response.defer()
+    headers = {"X-Riot-Token": RIOT_API_KEY}
+    region = region.lower()
+    routing = get_routing(region)
+
+    async with aiohttp.ClientSession() as session:
+        puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
+        if err == "not_found":
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
+            return
+        if err:
+            await interaction.followup.send(f"❌ Chyba API ({err}).")
+            return
+
+        await load_champion_cache(session)
+
+        spectator_url = f"https://{region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{puuid}"
+        async with session.get(spectator_url, headers=headers) as resp:
+            if resp.status == 404:
+                await interaction.followup.send(f"💤 **{jmeno}#{tag}** momentálně nehraje.")
+                return
+            if resp.status != 200:
+                await interaction.followup.send(f"❌ Chyba Spectator API ({resp.status}).")
+                return
+            game = await resp.json()
+
+    queue = QUEUE_NAMES.get(game.get("gameQueueConfigId", 0), "Unknown")
+    duration = game.get("gameLength", 0) // 60
+    participants = game.get("participants", [])
+    our = next((p for p in participants if p["puuid"] == puuid), None)
+    our_champ = champion_cache.get(our["championId"], f"ID:{our['championId']}") if our else "?"
+
+    text = f"🎮 **{jmeno}#{tag}** právě hraje!\n\n"
+    text += f"🗺️ **{queue}** | ⏱️ {duration} min\n"
+    text += f"🦸 **Champion:** {our_champ}\n\n"
+
+    team1 = [p for p in participants if p["teamId"] == 100]
+    team2 = [p for p in participants if p["teamId"] == 200]
+
+    text += "🔵 **Team 1:**\n"
+    for p in team1:
+        champ = champion_cache.get(p["championId"], f"ID:{p['championId']}")
+        marker = " ◀" if p["puuid"] == puuid else ""
+        text += f"  {champ} — {p.get('riotId', '?')}{marker}\n"
+
+    text += "\n🔴 **Team 2:**\n"
+    for p in team2:
+        champ = champion_cache.get(p["championId"], f"ID:{p['championId']}")
+        marker = " ◀" if p["puuid"] == puuid else ""
+        text += f"  {champ} — {p.get('riotId', '?')}{marker}\n"
+
+    await interaction.followup.send(text)
+
+
+# /lastgame
+@bot.tree.command(name="lastgame", description="Zobraz detail posledního zápasu")
+@app_commands.describe(
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)"
+)
+async def lastgame(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
+    if not RIOT_API_KEY:
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
+        return
+    await interaction.response.defer()
+    headers = {"X-Riot-Token": RIOT_API_KEY}
+    region = region.lower()
+    routing = get_routing(region)
+
+    async with aiohttp.ClientSession() as session:
+        puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
+        if err == "not_found":
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
+            return
+        if err:
+            await interaction.followup.send(f"❌ Chyba API ({err}).")
+            return
+
+        ids_url = f"https://{routing}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?count=1"
+        async with session.get(ids_url, headers=headers) as resp:
+            if resp.status != 200:
+                await interaction.followup.send(f"❌ Chyba Match API ({resp.status}).")
+                return
+            match_ids = await resp.json()
+            if not match_ids:
+                await interaction.followup.send(f"**{jmeno}#{tag}** nemá žádné záznamy zápasů.")
+                return
+
+        async with session.get(f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{match_ids[0]}", headers=headers) as resp:
+            if resp.status != 200:
+                await interaction.followup.send(f"❌ Chyba při načítání zápasu ({resp.status}).")
+                return
+            match = await resp.json()
+
+    p = next((x for x in match["info"]["participants"] if x["puuid"] == puuid), None)
+    if not p:
+        await interaction.followup.send("❌ Hráč v zápasu nenalezen.")
+        return
+
+    queue = QUEUE_NAMES.get(match["info"]["queueId"], "Unknown")
+    duration = match["info"]["gameDuration"] // 60
+    win = "✅ Win" if p["win"] else "❌ Loss"
+    kda_str = f"{p['kills']}/{p['deaths']}/{p['assists']}"
+    cs = p.get("totalMinionsKilled", 0) + p.get("neutralMinionsKilled", 0)
+    cs_per_min = round(cs / max(match["info"]["gameDuration"] / 60, 1), 1)
+    damage = p.get("totalDamageDealtToChampions", 0)
+
+    text = f"📋 **Poslední zápas — {jmeno}#{tag}**\n\n"
+    text += f"{win} | 🗺️ {queue} | ⏱️ {duration} min\n"
+    text += f"🦸 **{p['championName']}**\n"
+    text += f"⚔️ **KDA:** {kda_str}\n"
+    text += f"🌾 **CS:** {cs} ({cs_per_min}/min)\n"
+    text += f"💥 **Damage:** {damage:,}\n"
+
+    await interaction.followup.send(text)
+
+
+# /matchhistory
+@bot.tree.command(name="matchhistory", description="Zobraz historii posledních 5 zápasů")
+@app_commands.describe(
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)"
+)
+async def matchhistory(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
+    if not RIOT_API_KEY:
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
+        return
+    await interaction.response.defer()
+    headers = {"X-Riot-Token": RIOT_API_KEY}
+    region = region.lower()
+    routing = get_routing(region)
+
+    async with aiohttp.ClientSession() as session:
+        puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
+        if err == "not_found":
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
+            return
+        if err:
+            await interaction.followup.send(f"❌ Chyba API ({err}).")
+            return
+
+        ids_url = f"https://{routing}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?count=5"
+        async with session.get(ids_url, headers=headers) as resp:
+            if resp.status != 200:
+                await interaction.followup.send(f"❌ Chyba Match API ({resp.status}).")
+                return
+            match_ids = await resp.json()
+            if not match_ids:
+                await interaction.followup.send(f"**{jmeno}#{tag}** nemá žádné záznamy zápasů.")
+                return
+
+        matches = []
+        for mid in match_ids:
+            async with session.get(f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{mid}", headers=headers) as resp:
+                if resp.status == 200:
+                    matches.append(await resp.json())
+
+    text = f"📜 **Match History — {jmeno}#{tag}**\n\n"
+    for i, match in enumerate(matches, 1):
+        p = next((x for x in match["info"]["participants"] if x["puuid"] == puuid), None)
+        if not p:
+            continue
+        queue = QUEUE_NAMES.get(match["info"]["queueId"], "Unknown")
+        duration = match["info"]["gameDuration"] // 60
+        result = "✅" if p["win"] else "❌"
+        kda_str = f"{p['kills']}/{p['deaths']}/{p['assists']}"
+        text += f"**#{i}** {result} **{p['championName']}** | {kda_str} | {queue} | {duration}min\n"
+
+    await interaction.followup.send(text)
+
+
+# /kda
+@bot.tree.command(name="kda", description="Zobraz průměrné KDA z posledních 10 zápasů")
+@app_commands.describe(
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)"
+)
+async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
+    if not RIOT_API_KEY:
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
+        return
+    await interaction.response.defer()
+    headers = {"X-Riot-Token": RIOT_API_KEY}
+    region = region.lower()
+    routing = get_routing(region)
+
+    async with aiohttp.ClientSession() as session:
+        puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
+        if err == "not_found":
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
+            return
+        if err:
+            await interaction.followup.send(f"❌ Chyba API ({err}).")
+            return
+
+        ids_url = f"https://{routing}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?count=10"
+        async with session.get(ids_url, headers=headers) as resp:
+            if resp.status != 200:
+                await interaction.followup.send(f"❌ Chyba Match API ({resp.status}).")
+                return
+            match_ids = await resp.json()
+            if not match_ids:
+                await interaction.followup.send(f"**{jmeno}#{tag}** nemá žádné záznamy zápasů.")
+                return
+
+        kills_t = deaths_t = assists_t = wins = count = 0
+        for mid in match_ids:
+            async with session.get(f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{mid}", headers=headers) as resp:
+                if resp.status != 200:
+                    continue
+                match = await resp.json()
+                p = next((x for x in match["info"]["participants"] if x["puuid"] == puuid), None)
+                if not p:
+                    continue
+                kills_t += p["kills"]
+                deaths_t += p["deaths"]
+                assists_t += p["assists"]
+                if p["win"]:
+                    wins += 1
+                count += 1
+
+    if count == 0:
+        await interaction.followup.send("❌ Nepodařilo se načíst zápasy.")
+        return
+
+    avg_k = round(kills_t / count, 1)
+    avg_d = round(deaths_t / count, 1)
+    avg_a = round(assists_t / count, 1)
+    ratio = round((kills_t + assists_t) / max(deaths_t, 1), 2)
+    winrate = round(wins / count * 100, 1)
+
+    text = f"📊 **KDA — {jmeno}#{tag}** (posledních {count} zápasů)\n\n"
+    text += f"⚔️ **Avg KDA:** {avg_k} / {avg_d} / {avg_a}\n"
+    text += f"📈 **KDA Ratio:** {ratio}\n"
+    text += f"✅ **Winrate:** {winrate}% ({wins}W / {count - wins}L)\n"
+
+    await interaction.followup.send(text)
+
+
 # /countdown
 @bot.tree.command(name="countdown", description="Odpočet do určitého data")
 @app_commands.describe(

@@ -36,13 +36,13 @@ All LoL commands accept `jmeno` (Riot name), `tag` (Riot tag without #), and opt
 
 | Rank | Voice Hours Required |
 |------|----------------------|
-| 🥉 Bronze | 0h |
-| 🥈 Silver | 14h |
-| 🥇 Gold | 28h |
-| 🪙 Platinum | 56h |
-| 💎 Diamond | 70h |
-| 💎 Master | 84h |
-| 🔷 Challenger | 98h |
+| Bronze | 0h |
+| Silver | 14h |
+| Gold | 28h |
+| Platinum | 56h |
+| Diamond | 70h |
+| Master | 84h |
+| Challenger | 98h |
 
 ## Setup
 

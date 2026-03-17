@@ -32,6 +32,16 @@ cursor.execute("""
     )
 """)
 
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS lol_profiles (
+        id SERIAL PRIMARY KEY,
+        label TEXT NOT NULL,
+        riot_name TEXT NOT NULL,
+        tag TEXT NOT NULL,
+        region TEXT NOT NULL DEFAULT 'euw1'
+    )
+""")
+
 # Intents
 intents = discord.Intents.default()
 intents.message_content = True
@@ -607,6 +617,120 @@ async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: st
     text += f"⚔️ **Avg KDA:** {avg_k} / {avg_d} / {avg_a}\n"
     text += f"📈 **KDA Ratio:** {ratio}\n"
     text += f"✅ **Winrate:** {winrate}% ({wins}W / {count - wins}L)\n"
+
+    await interaction.followup.send(text)
+
+
+# ── LoL profiles ─────────────────────────────────────────────────────────────
+
+@bot.tree.command(name="addprofile", description="Přidej LoL profil do sledovaných")
+@app_commands.describe(
+    label="Přezdívka v Discordu (např. Kuba)",
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)",
+)
+async def addprofile(
+    interaction: discord.Interaction,
+    label: str,
+    jmeno: str,
+    tag: str,
+    region: str = "euw1",
+):
+    cursor.execute(
+        "INSERT INTO lol_profiles (label, riot_name, tag, region) VALUES (%s, %s, %s, %s)",
+        (label, jmeno, tag, region.lower()),
+    )
+    await interaction.response.send_message(
+        f"✅ Profil **{label}** (`{jmeno}#{tag}` / {region.upper()}) přidán!"
+    )
+
+
+@bot.tree.command(name="removeprofile", description="Odstraň LoL profil ze sledovaných")
+@app_commands.describe(label="Přezdívka profilu který chceš smazat")
+async def removeprofile(interaction: discord.Interaction, label: str):
+    cursor.execute("DELETE FROM lol_profiles WHERE label = %s", (label,))
+    if cursor.rowcount == 0:
+        await interaction.response.send_message(
+            f"❌ Profil **{label}** nenalezen.", ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(f"🗑️ Profil **{label}** odstraněn.")
+
+
+@bot.tree.command(name="teamlol", description="Zobraz ranked stats všech uložených profilů")
+async def teamlol(interaction: discord.Interaction):
+    if not RIOT_API_KEY:
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
+        return
+
+    cursor.execute("SELECT label, riot_name, tag, region FROM lol_profiles ORDER BY id ASC")
+    profiles = cursor.fetchall()
+
+    if not profiles:
+        await interaction.response.send_message(
+            "📭 Žádné profily. Přidej je pomocí `/addprofile`."
+        )
+        return
+
+    await interaction.response.defer()
+    headers = {"X-Riot-Token": RIOT_API_KEY}
+
+    TIER_ORDER = {
+        "CHALLENGER": 9, "GRANDMASTER": 8, "MASTER": 7,
+        "DIAMOND": 6, "EMERALD": 5, "PLATINUM": 4,
+        "GOLD": 3, "SILVER": 2, "BRONZE": 1, "IRON": 0,
+    }
+    DIVISION_ORDER = {"I": 4, "II": 3, "III": 2, "IV": 1}
+
+    results = []
+
+    async with aiohttp.ClientSession() as session:
+        for label, riot_name, tag, region in profiles:
+            routing = get_routing(region)
+            puuid, err = await fetch_puuid(session, riot_name, tag, routing, headers)
+
+            if err:
+                results.append({"label": label, "riot_name": riot_name, "tag": tag, "error": err, "sort": -1})
+                continue
+
+            ranked_url = f"https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}"
+            async with session.get(ranked_url, headers=headers) as resp:
+                if resp.status != 200:
+                    results.append({"label": label, "riot_name": riot_name, "tag": tag, "error": str(resp.status), "sort": -1})
+                    continue
+                entries = await resp.json()
+
+            solo = next((e for e in entries if e["queueType"] == "RANKED_SOLO_5x5"), None)
+
+            if solo:
+                sort_val = (
+                    TIER_ORDER.get(solo["tier"], 0) * 10000
+                    + DIVISION_ORDER.get(solo["rank"], 0) * 1000
+                    + solo["leaguePoints"]
+                )
+                results.append({"label": label, "solo": solo, "sort": sort_val})
+            else:
+                results.append({"label": label, "riot_name": riot_name, "tag": tag, "solo": None, "sort": -1})
+
+    results.sort(key=lambda x: x["sort"], reverse=True)
+
+    text = "📊 **Team LoL Rankings**\n\n"
+    for i, r in enumerate(results, 1):
+        if r.get("error"):
+            err_msg = "nenalezen" if r["error"] == "not_found" else f"chyba ({r['error']})"
+            text += f"**#{i} {r['label']}** (`{r['riot_name']}#{r['tag']}`) — ❌ {err_msg}\n\n"
+        elif r.get("solo"):
+            solo = r["solo"]
+            wins, losses = solo["wins"], solo["losses"]
+            winrate = round(wins / (wins + losses) * 100, 1)
+            emoji = RANK_EMOJIS.get(solo["tier"], "")
+            text += (
+                f"**#{i} {r['label']}** — {emoji} {solo['tier']} {solo['rank']} {solo['leaguePoints']} LP\n"
+                f"   ✅ {wins}W / ❌ {losses}L — winrate **{winrate}%**\n\n"
+            )
+        else:
+            text += f"**#{i} {r['label']}** (`{r['riot_name']}#{r['tag']}`) — ⚙️ Unranked\n\n"
 
     await interaction.followup.send(text)
 

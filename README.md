@@ -18,7 +18,8 @@ A Discord bot that tracks user activity, provides server statistics, and integra
 |---------|-------------|
 | `/leaderboard` | Show the server activity leaderboard |
 | `/ranks` | Show the rank table and required hours |
-| `/countdown` | Start a live countdown to a date |
+| `/setcountdown` | Start a countdown to a date |
+| `/countdown` | Show all active countdowns |
 
 ### League of Legends
 

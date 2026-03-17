@@ -7,20 +7,29 @@ import psycopg2
 import aiohttp
 from config import DISCORD_TOKEN, DATABASE_URL, RIOT_API_KEY
 
+
 # DB connection
 conn = psycopg2.connect(DATABASE_URL, sslmode="require")
 conn.autocommit = True
 cursor = conn.cursor()
 
-# Create table if not exists
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS user_stats (
-    user_id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    messages INTEGER DEFAULT 0,
-    voice_seconds INTEGER DEFAULT 0,
-    voice_join_time INTEGER DEFAULT NULL
-)
+    CREATE TABLE IF NOT EXISTS user_stats (
+        user_id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        messages INTEGER DEFAULT 0,
+        voice_seconds INTEGER DEFAULT 0,
+        voice_join_time INTEGER DEFAULT NULL
+    )
+""")
+
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS countdowns (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        target_ts BIGINT NOT NULL,
+        created_by TEXT NOT NULL
+    )
 """)
 
 # Intents
@@ -52,7 +61,8 @@ async def on_ready():
     await bot.tree.sync()
 
 
-# Message tracking
+# ── Activity tracking ────────────────────────────────────────────────────────
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -63,21 +73,88 @@ async def on_message(message):
 
     cursor.execute(
         """
-    INSERT INTO user_stats (user_id, username, messages)
-    VALUES (%s, %s, 1)
-    ON CONFLICT (user_id)
-    DO UPDATE SET messages = user_stats.messages + 1, username = EXCLUDED.username
-    """,
+        INSERT INTO user_stats (user_id, username, messages)
+        VALUES (%s, %s, 1)
+        ON CONFLICT (user_id)
+        DO UPDATE SET messages = user_stats.messages + 1, username = EXCLUDED.username
+        """,
         (user_id, username),
     )
 
 
-# /leaderboard
-@bot.tree.command(name="leaderboard", description="Zobraz žebříček aktivních uživatelů")
-async def leaderboard(interaction: discord.Interaction):
-    text = build_leaderboard()
-    await interaction.response.send_message(text)
+@bot.event
+async def on_voice_state_update(member, before, after):
+    user_id = str(member.id)
+    username = member.name
 
+    # join
+    if before.channel is None and after.channel is not None:
+        if not after.self_deaf and not after.deaf:
+            cursor.execute(
+                """
+                INSERT INTO user_stats (user_id, username, messages, voice_seconds, voice_join_time)
+                VALUES (%s, %s, 0, 0, %s)
+                ON CONFLICT (user_id)
+                DO UPDATE SET voice_join_time = EXCLUDED.voice_join_time, username = EXCLUDED.username
+                """,
+                (user_id, username, int(time.time())),
+            )
+
+    # leave
+    if before.channel is not None and after.channel is None:
+        cursor.execute(
+            "SELECT voice_join_time FROM user_stats WHERE user_id=%s", (user_id,)
+        )
+        row = cursor.fetchone()
+        if row and row[0]:
+            duration = int(time.time()) - row[0]
+            cursor.execute(
+                """
+                UPDATE user_stats
+                SET voice_seconds = voice_seconds + %s, voice_join_time = NULL
+                WHERE user_id=%s
+                """,
+                (duration, user_id),
+            )
+
+    # self-deaf / undeaf
+    if (
+        before.channel is not None
+        and after.channel is not None
+        and before.channel == after.channel
+    ):
+        deaf_now = after.self_deaf or after.deaf
+        deaf_before = before.self_deaf or before.deaf
+
+        if deaf_before != deaf_now:
+            if deaf_now:
+                cursor.execute(
+                    "SELECT voice_join_time FROM user_stats WHERE user_id=%s", (user_id,)
+                )
+                row = cursor.fetchone()
+                if row and row[0]:
+                    duration = int(time.time()) - row[0]
+                    cursor.execute(
+                        """
+                        UPDATE user_stats
+                        SET voice_seconds = voice_seconds + %s, voice_join_time = NULL
+                        WHERE user_id=%s
+                        """,
+                        (duration, user_id),
+                    )
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO user_stats (user_id, username, messages, voice_seconds, voice_join_time)
+                    VALUES (%s, %s, 0, 0, %s)
+                    ON CONFLICT (user_id)
+                    DO UPDATE SET voice_join_time = EXCLUDED.voice_join_time, username = EXCLUDED.username
+                    """,
+                    (user_id, username, int(time.time())),
+                )
+
+
+# ── Leaderboard ──────────────────────────────────────────────────────────────
 
 def get_rank(voice_seconds):
     hours = voice_seconds / 3600
@@ -99,12 +176,12 @@ def get_rank(voice_seconds):
 
 def build_leaderboard():
     cursor.execute("""
-    SELECT username, messages, voice_seconds
-    FROM user_stats
-    ORDER BY (messages + voice_seconds/60) DESC
+        SELECT username, messages, voice_seconds
+        FROM user_stats
+        ORDER BY (messages + voice_seconds/60) DESC
     """)
     rows = cursor.fetchall()
-    text = "🏆 LEADERBOARD 🏆\n\n"
+    text = "🏆 Pracovní docházka 🏆\n\n"
     for i, row in enumerate(rows, 1):
         username, messages, voice_secs = row
         hours = voice_secs // 3600
@@ -114,11 +191,16 @@ def build_leaderboard():
     return text
 
 
-# /ranks
+@bot.tree.command(name="leaderboard", description="Zobraz žebříček aktivních uživatelů")
+async def leaderboard(interaction: discord.Interaction):
+    text = build_leaderboard()
+    await interaction.response.send_message(text)
+
+
 @bot.tree.command(name="ranks", description="Zobraz tabulku ranků a potřebné hodiny")
 async def ranks(interaction: discord.Interaction):
     text = (
-        "🏅 **Ranks**\n\n"
+        "🏅 **Tabulka ranků**\n\n"
         "🟫 **Bronze** — 0 h\n"
         "⬜ **Silver** — 14 h\n"
         "🟨 **Gold** — 28 h\n"
@@ -130,129 +212,119 @@ async def ranks(interaction: discord.Interaction):
     await interaction.response.send_message(text)
 
 
-# Voice tracking
-@bot.event
-async def on_voice_state_update(member, before, after):
-    user_id = str(member.id)
-    username = member.name
+# ── Riot API helpers ─────────────────────────────────────────────────────────
 
-    # join
-    if before.channel is None and after.channel is not None:
-        if not after.self_deaf and not after.deaf:
-            cursor.execute(
-                """
-            INSERT INTO user_stats (user_id, username, messages, voice_seconds, voice_join_time)
-            VALUES (%s, %s, 0, 0, %s)
-            ON CONFLICT (user_id)
-            DO UPDATE SET voice_join_time = EXCLUDED.voice_join_time, username = EXCLUDED.username
-            """,
-                (user_id, username, int(time.time())),
+champion_cache = {}
+
+QUEUE_NAMES = {
+    420: "Solo/Duo",
+    440: "Flex",
+    450: "ARAM",
+    400: "Normal Draft",
+    430: "Normal Blind",
+    900: "URF",
+    1020: "One for All",
+    1300: "Nexus Blitz",
+    1400: "Ultimate Spellbook",
+    0: "Custom",
+}
+
+RANK_EMOJIS = {
+    "IRON": "⚙️",
+    "BRONZE": "🥉",
+    "SILVER": "🥈",
+    "GOLD": "🥇",
+    "PLATINUM": "🪙",
+    "EMERALD": "💚",
+    "DIAMOND": "💎",
+    "MASTER": "🔮",
+    "GRANDMASTER": "🔴",
+    "CHALLENGER": "🔷",
+}
+
+
+def get_routing(region):
+    if region in ("euw1", "eun1", "tr1", "ru"):
+        return "europe"
+    if region in ("na1", "br1", "la1", "la2"):
+        return "americas"
+    return "asia"
+
+
+async def fetch_puuid(session, jmeno, tag, routing, headers):
+    url = f"https://{routing}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{jmeno}/{tag}"
+    async with session.get(url, headers=headers) as resp:
+        if resp.status == 404:
+            return None, "not_found"
+        if resp.status != 200:
+            return None, str(resp.status)
+        data = await resp.json()
+        return data["puuid"], None
+
+
+async def load_champion_cache(session):
+    global champion_cache
+    if champion_cache:
+        return
+    try:
+        async with session.get("https://ddragon.leagueoflegends.com/api/versions.json") as resp:
+            versions = await resp.json()
+            version = versions[0]
+        async with session.get(
+            f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json"
+        ) as resp:
+            data = await resp.json()
+            for champ in data["data"].values():
+                champion_cache[int(champ["key"])] = champ["name"]
+    except Exception:
+        pass
+
+
+def riot_check(func):
+    async def wrapper(interaction: discord.Interaction, *args, **kwargs):
+        if not RIOT_API_KEY:
+            await interaction.response.send_message(
+                "❌ RIOT_API_KEY není nastaven.", ephemeral=True
             )
+            return
+        await func(interaction, *args, **kwargs)
+    return wrapper
 
-    # leave
-    if before.channel is not None and after.channel is None:
-        cursor.execute(
-            "SELECT voice_join_time FROM user_stats WHERE user_id=%s", (user_id,)
-        )
-        row = cursor.fetchone()
-        if row and row[0]:
-            duration = int(time.time()) - row[0]
-            cursor.execute(
-                """
-            UPDATE user_stats
-            SET voice_seconds = voice_seconds + %s, voice_join_time = NULL
-            WHERE user_id=%s
-            """,
-                (duration, user_id),
-            )
 
-    # self-deaf / undeaf (anticheat)
-    if (
-        before.channel is not None
-        and after.channel is not None
-        and before.channel == after.channel
-    ):
-        deaf_now = after.self_deaf or after.deaf
-        deaf_before = before.self_deaf or before.deaf
-        if deaf_before != deaf_now:
-            if deaf_now:
-                cursor.execute(
-                    "SELECT voice_join_time FROM user_stats WHERE user_id=%s",
-                    (user_id,),
-                )
-                row = cursor.fetchone()
-                if row and row[0]:
-                    duration = int(time.time()) - row[0]
-                    cursor.execute(
-                        """
-                    UPDATE user_stats
-                    SET voice_seconds = voice_seconds + %s, voice_join_time = NULL
-                    WHERE user_id=%s
-                    """,
-                        (duration, user_id),
-                    )
-            else:
-                cursor.execute(
-                    """
-                INSERT INTO user_stats (user_id, username, messages, voice_seconds, voice_join_time)
-                VALUES (%s, %s, 0, 0, %s)
-                ON CONFLICT (user_id)
-                DO UPDATE SET voice_join_time = EXCLUDED.voice_join_time, username = EXCLUDED.username
-                """,
-                    (user_id, username, int(time.time())),
-                )
+# ── Riot commands ─────────────────────────────────────────────────────────────
 
-# /lol
 @bot.tree.command(name="lol", description="Zkontroluj LoL rank a winrate hráče")
 @app_commands.describe(
     jmeno="Riot jméno (např. Faker)",
     tag="Riot tag bez # (např. EUW)",
-    region="Server (výchozí: euw1)"
+    region="Server (výchozí: euw1)",
 )
-async def lol(
-    interaction: discord.Interaction,
-    jmeno: str,
-    tag: str,
-    region: str = "euw1"
-):
+async def lol(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
-        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven na serveru.", ephemeral=True)
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
 
     await interaction.response.defer()
-
     headers = {"X-Riot-Token": RIOT_API_KEY}
     region = region.lower()
-    routing = "europe" if region in ("euw1", "eun1", "tr1", "ru") else "americas" if region in ("na1", "br1", "la1", "la2") else "asia"
+    routing = get_routing(region)
 
     async with aiohttp.ClientSession() as session:
-        # PUUID by RIOTID
-        account_url = f"https://{routing}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{jmeno}/{tag}"
-        async with session.get(account_url, headers=headers) as resp:
-            if resp.status == 404:
-                await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
-                return
-            if resp.status != 200:
-                await interaction.followup.send(f"❌ Chyba Riot API ({resp.status}).")
-                return
-            account = await resp.json()
-            puuid = account["puuid"]
+        puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
+        if err == "not_found":
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
+            return
+        if err:
+            await interaction.followup.send(f"❌ Chyba Riot API ({err}).")
+            return
 
-        # Ranked data by PUUID
         ranked_url = f"https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}"
         async with session.get(ranked_url, headers=headers) as resp:
             if resp.status != 200:
-                await interaction.followup.send(f"❌ Nepodařilo se načíst ranked data ({resp.status}).")
+                await interaction.followup.send(f"❌ Chyba ranked API ({resp.status}).")
                 return
             entries = await resp.json()
 
-    RANK_EMOJIS = {
-        "IRON": "⚙️", "BRONZE": "🥉", "SILVER": "🥈", "GOLD": "🥇",
-        "PLATINUM": "🪙", "EMERALD": "💚", "DIAMOND": "💎",
-        "MASTER": "🔮", "GRANDMASTER": "🔴", "CHALLENGER": "🔷"
-    }
-
-    # Solo/Duo queue
     solo = next((e for e in entries if e["queueType"] == "RANKED_SOLO_5x5"), None)
     flex = next((e for e in entries if e["queueType"] == "RANKED_FLEX_SR"), None)
 
@@ -279,70 +351,17 @@ async def lol(
     await interaction.followup.send(text)
 
 
-# --- Riot helpers ---
-
-champion_cache = {}
-
-QUEUE_NAMES = {
-    420: "Solo/Duo",
-    440: "Flex",
-    450: "ARAM",
-    400: "Normal Draft",
-    430: "Normal Blind",
-    900: "URF",
-    1020: "One for All",
-    1300: "Nexus Blitz",
-    1400: "Ultimate Spellbook",
-    0: "Custom",
-}
-
-
-async def load_champion_cache(session):
-    global champion_cache
-    if champion_cache:
-        return
-    try:
-        async with session.get("https://ddragon.leagueoflegends.com/api/versions.json") as resp:
-            versions = await resp.json()
-            version = versions[0]
-        async with session.get(f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json") as resp:
-            data = await resp.json()
-            for champ in data["data"].values():
-                champion_cache[int(champ["key"])] = champ["name"]
-    except Exception:
-        pass
-
-
-def get_routing(region):
-    if region in ("euw1", "eun1", "tr1", "ru"):
-        return "europe"
-    if region in ("na1", "br1", "la1", "la2"):
-        return "americas"
-    return "asia"
-
-
-async def fetch_puuid(session, jmeno, tag, routing, headers):
-    url = f"https://{routing}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{jmeno}/{tag}"
-    async with session.get(url, headers=headers) as resp:
-        if resp.status == 404:
-            return None, "not_found"
-        if resp.status != 200:
-            return None, str(resp.status)
-        data = await resp.json()
-        return data["puuid"], None
-
-
-# /ingame
 @bot.tree.command(name="ingame", description="Zkontroluj jestli hráč právě hraje")
 @app_commands.describe(
     jmeno="Riot jméno (např. Faker)",
     tag="Riot tag bez # (např. EUW)",
-    region="Server (výchozí: euw1)"
+    region="Server (výchozí: euw1)",
 )
 async def ingame(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
         await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
+
     await interaction.response.defer()
     headers = {"X-Riot-Token": RIOT_API_KEY}
     region = region.lower()
@@ -397,17 +416,17 @@ async def ingame(interaction: discord.Interaction, jmeno: str, tag: str, region:
     await interaction.followup.send(text)
 
 
-# /lastgame
 @bot.tree.command(name="lastgame", description="Zobraz detail posledního zápasu")
 @app_commands.describe(
     jmeno="Riot jméno (např. Faker)",
     tag="Riot tag bez # (např. EUW)",
-    region="Server (výchozí: euw1)"
+    region="Server (výchozí: euw1)",
 )
 async def lastgame(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
         await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
+
     await interaction.response.defer()
     headers = {"X-Riot-Token": RIOT_API_KEY}
     region = region.lower()
@@ -432,7 +451,8 @@ async def lastgame(interaction: discord.Interaction, jmeno: str, tag: str, regio
                 await interaction.followup.send(f"**{jmeno}#{tag}** nemá žádné záznamy zápasů.")
                 return
 
-        async with session.get(f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{match_ids[0]}", headers=headers) as resp:
+        match_url = f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{match_ids[0]}"
+        async with session.get(match_url, headers=headers) as resp:
             if resp.status != 200:
                 await interaction.followup.send(f"❌ Chyba při načítání zápasu ({resp.status}).")
                 return
@@ -461,17 +481,17 @@ async def lastgame(interaction: discord.Interaction, jmeno: str, tag: str, regio
     await interaction.followup.send(text)
 
 
-# /matchhistory
 @bot.tree.command(name="matchhistory", description="Zobraz historii posledních 5 zápasů")
 @app_commands.describe(
     jmeno="Riot jméno (např. Faker)",
     tag="Riot tag bez # (např. EUW)",
-    region="Server (výchozí: euw1)"
+    region="Server (výchozí: euw1)",
 )
 async def matchhistory(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
         await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
+
     await interaction.response.defer()
     headers = {"X-Riot-Token": RIOT_API_KEY}
     region = region.lower()
@@ -498,7 +518,10 @@ async def matchhistory(interaction: discord.Interaction, jmeno: str, tag: str, r
 
         matches = []
         for mid in match_ids:
-            async with session.get(f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{mid}", headers=headers) as resp:
+            async with session.get(
+                f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{mid}",
+                headers=headers,
+            ) as resp:
                 if resp.status == 200:
                     matches.append(await resp.json())
 
@@ -516,17 +539,17 @@ async def matchhistory(interaction: discord.Interaction, jmeno: str, tag: str, r
     await interaction.followup.send(text)
 
 
-# /kda
 @bot.tree.command(name="kda", description="Zobraz průměrné KDA z posledních 10 zápasů")
 @app_commands.describe(
     jmeno="Riot jméno (např. Faker)",
     tag="Riot tag bez # (např. EUW)",
-    region="Server (výchozí: euw1)"
+    region="Server (výchozí: euw1)",
 )
 async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
         await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
+
     await interaction.response.defer()
     headers = {"X-Riot-Token": RIOT_API_KEY}
     region = region.lower()
@@ -553,7 +576,10 @@ async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: st
 
         kills_t = deaths_t = assists_t = wins = count = 0
         for mid in match_ids:
-            async with session.get(f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{mid}", headers=headers) as resp:
+            async with session.get(
+                f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{mid}",
+                headers=headers,
+            ) as resp:
                 if resp.status != 200:
                     continue
                 match = await resp.json()
@@ -585,8 +611,9 @@ async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: st
     await interaction.followup.send(text)
 
 
-# /countdown
-@bot.tree.command(name="countdown", description="Odpočet do určitého data")
+# ── Countdown ────────────────────────────────────────────────────────────────
+
+@bot.tree.command(name="setcountdown", description="Nastav nový odpočet a ulož ho")
 @app_commands.describe(
     name="Název odpočtu (např. Vánoce)",
     year="Rok (např. 2026)",
@@ -595,7 +622,7 @@ async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: st
     hour="Hodina (0-23)",
     minute="Minuta (0-59)",
 )
-async def countdown(
+async def setcountdown(
     interaction: discord.Interaction,
     name: str,
     year: int,
@@ -610,35 +637,72 @@ async def countdown(
 
         if target_date <= now:
             await interaction.response.send_message(
-                "Datum musí být v budoucnosti!", ephemeral=True
+                "❌ Datum musí být v budoucnosti!", ephemeral=True
             )
             return
 
-        await interaction.response.send_message(
-            f"⏱️ {name}: {target_date.strftime('%d.%m.%Y %H:%M')}"
+        target_ts = int(target_date.timestamp())
+        created_by = interaction.user.name
+
+        cursor.execute(
+            "INSERT INTO countdowns (name, target_ts, created_by) VALUES (%s, %s, %s)",
+            (name, target_ts, created_by),
         )
-        message = await interaction.original_response()
 
-        while True:
-            now = datetime.now()
-            if now >= target_date:
-                await message.edit(content=f"✅ {name} - Čas nastal!")
-                break
+        diff = target_date - now
+        days = diff.days
+        hours = diff.seconds // 3600
+        minutes = (diff.seconds % 3600) // 60
 
-            diff = target_date - now
-            days = diff.days
-            hours = diff.seconds // 3600
-            minutes = (diff.seconds % 3600) // 60
-            seconds = diff.seconds % 60
-
-            await message.edit(
-                content=f"⏱️ {name}: {days}d {hours}h {minutes}m {seconds}s"
-            )
-            await asyncio.sleep(1)
+        await interaction.response.send_message(
+            f"✅ Odpočet **{name}** uložen!\n"
+            f"📅 Cíl: {target_date.strftime('%d.%m.%Y %H:%M')}\n"
+            f"⏳ Zbývá: {days}d {hours}h {minutes}m"
+        )
 
     except ValueError:
-        await interaction.response.send_message("Neplatné datum!", ephemeral=True)
+        await interaction.response.send_message("❌ Neplatné datum!", ephemeral=True)
 
+
+@bot.tree.command(name="countdown", description="Zobraz všechny aktivní odpočty")
+async def countdown(interaction: discord.Interaction):
+    cursor.execute(
+        "SELECT id, name, target_ts, created_by FROM countdowns ORDER BY target_ts ASC"
+    )
+    rows = cursor.fetchall()
+
+    if not rows:
+        await interaction.response.send_message("📭 Žádné aktivní odpočty.")
+        return
+
+    now_ts = int(datetime.now().timestamp())
+    finished = []
+    text = "⏱️ **Aktivní odpočty**\n\n"
+
+    for row in rows:
+        cd_id, name, target_ts, created_by = row
+        remaining = target_ts - now_ts
+
+        if remaining <= 0:
+            finished.append(cd_id)
+            text += f"✅ **{name}** — hotovo! *(přidal {created_by})*\n"
+        else:
+            days = remaining // 86400
+            hours = (remaining % 86400) // 3600
+            minutes = (remaining % 3600) // 60
+            seconds = remaining % 60
+            target_str = datetime.fromtimestamp(target_ts).strftime("%d.%m.%Y %H:%M")
+            text += (
+                f"⏳ **{name}** — {days}d {hours}h {minutes}m {seconds}s\n"
+                f"   📅 {target_str} *(přidal {created_by})*\n\n"
+            )
+
+    if finished:
+        cursor.execute(
+            f"DELETE FROM countdowns WHERE id = ANY(%s)", (finished,)
+        )
+
+    await interaction.response.send_message(text)
 
 
 bot.run(DISCORD_TOKEN)

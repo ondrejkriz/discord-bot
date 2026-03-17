@@ -30,6 +30,9 @@ A Discord bot that tracks user activity, provides server statistics, and integra
 | `/lastgame` | Detail of the last match (champion, KDA, CS, damage) |
 | `/matchhistory` | Overview of the last 5 matches |
 | `/kda` | Average KDA and winrate from the last 10 matches |
+| `/addprofile` | Add profile to the database |
+| `/removeprofile` | Remove profile from the database |
+| `/teamlol` | Show players from the database |
 
 All LoL commands accept `jmeno` (Riot name), `tag` (Riot tag without #), and optional `region` (default: `euw1`).
 

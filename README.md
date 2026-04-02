@@ -57,6 +57,7 @@ All LoL commands accept `jmeno` (Riot name), `tag` (Riot tag without #), and opt
 | `DISCORD_TOKEN` | Your Discord bot token |
 | `RAILWAY_DATABASE_URL` | PostgreSQL connection string |
 | `RIOT_API_KEY` | Riot Games API key (optional — disables LoL commands if missing) |
+| `YOUTUBE_COOKIES` | Optional Netscape-format YouTube cookies for yt-dlp when YouTube asks to sign in |
 
 ### Requirements
 

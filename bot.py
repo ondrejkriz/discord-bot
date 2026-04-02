@@ -1,5 +1,6 @@
 import discord
 from discord import app_commands
+from pathlib import Path
 import time
 import asyncio
 from collections import deque
@@ -7,7 +8,7 @@ from datetime import datetime
 import psycopg2
 import aiohttp
 import yt_dlp
-from config import DISCORD_TOKEN, DATABASE_URL, RIOT_API_KEY
+from config import DISCORD_TOKEN, DATABASE_URL, RIOT_API_KEY, YOUTUBE_COOKIES
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -23,6 +24,23 @@ YTDL_OPTIONS = {
 }
 
 IDLE_DISCONNECT_SECONDS = 600
+COOKIE_FILE_PATH = Path("/tmp/youtube-cookies.txt")
+
+
+def configure_ytdl_cookies():
+    if not YOUTUBE_COOKIES.strip():
+        return
+
+    cookie_text = YOUTUBE_COOKIES.strip()
+    if not cookie_text.startswith("# Netscape HTTP Cookie File"):
+        cookie_text = "# Netscape HTTP Cookie File\n" + cookie_text
+
+    COOKIE_FILE_PATH.write_text(cookie_text + "\n", encoding="utf-8")
+    YTDL_OPTIONS["cookiefile"] = str(COOKIE_FILE_PATH)
+    print("YouTube cookies configured for yt-dlp.")
+
+
+configure_ytdl_cookies()
 
 
 # DB connection

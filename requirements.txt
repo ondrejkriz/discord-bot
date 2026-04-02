@@ -1,4 +1,4 @@
-discord.py
+discord.py[voice]
 psycopg2-binary
 python-dotenv
 yt-dlp

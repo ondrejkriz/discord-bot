@@ -22,6 +22,8 @@ YTDL_OPTIONS = {
     "source_address": "0.0.0.0",
 }
 
+IDLE_DISCONNECT_SECONDS = 600
+
 
 # DB connection
 conn = psycopg2.connect(DATABASE_URL, sslmode="require")
@@ -71,6 +73,7 @@ class MyClient(discord.Client):
         self.music_queues = {}
         self.current_tracks = {}
         self.looped_guilds = set()
+        self.disconnect_tasks = {}
 
     async def setup_hook(self):
         pass
@@ -274,8 +277,46 @@ def get_guild_queue(guild_id: int):
     return bot.music_queues.setdefault(guild_id, deque())
 
 
+def cancel_disconnect_task(guild_id: int):
+    task = bot.disconnect_tasks.pop(guild_id, None)
+    if task and not task.done():
+        task.cancel()
+
+
+async def schedule_idle_disconnect(guild_id: int):
+    cancel_disconnect_task(guild_id)
+    bot.disconnect_tasks[guild_id] = asyncio.current_task()
+
+    try:
+        await asyncio.sleep(IDLE_DISCONNECT_SECONDS)
+        guild = bot.get_guild(guild_id)
+        voice_client = guild.voice_client if guild else None
+        queue = get_guild_queue(guild_id)
+
+        if not voice_client:
+            return
+
+        if voice_client.is_playing() or voice_client.is_paused():
+            return
+
+        if queue:
+            return
+
+        bot.current_tracks.pop(guild_id, None)
+        bot.looped_guilds.discard(guild_id)
+        await voice_client.disconnect()
+        print(f"/idle disconnect triggered for guild {guild_id}")
+    except asyncio.CancelledError:
+        pass
+    finally:
+        current_task = bot.disconnect_tasks.get(guild_id)
+        if current_task is asyncio.current_task():
+            bot.disconnect_tasks.pop(guild_id, None)
+
+
 async def start_track(interaction: discord.Interaction, voice_client, track):
     guild_id = interaction.guild_id
+    cancel_disconnect_task(guild_id)
     source = discord.FFmpegPCMAudio(track["stream_url"], **FFMPEG_OPTIONS)
 
     def after_playback(error):
@@ -308,6 +349,10 @@ async def play_next_in_queue(guild_id: int):
 
     if not queue:
         bot.current_tracks.pop(guild_id, None)
+        cancel_disconnect_task(guild_id)
+        bot.disconnect_tasks[guild_id] = asyncio.create_task(
+            schedule_idle_disconnect(guild_id)
+        )
         return
 
     next_track = queue.popleft()
@@ -324,6 +369,7 @@ async def play(interaction: discord.Interaction, query: str):
         voice_client = await ensure_voice_client(interaction)
         if voice_client is None:
             return
+        cancel_disconnect_task(interaction.guild_id)
 
         print(f"/play voice ready in guild {interaction.guild_id}")
         info = await asyncio.wait_for(extract_audio_info(query), timeout=25)
@@ -394,9 +440,14 @@ async def stop(interaction: discord.Interaction):
     queue.clear()
     bot.current_tracks.pop(interaction.guild_id, None)
     bot.looped_guilds.discard(interaction.guild_id)
+    cancel_disconnect_task(interaction.guild_id)
 
     if voice_client.is_playing() or voice_client.is_paused():
         voice_client.stop()
+    else:
+        bot.disconnect_tasks[interaction.guild_id] = asyncio.create_task(
+            schedule_idle_disconnect(interaction.guild_id)
+        )
 
     await interaction.response.send_message("Prehravani zastaveno, queue smazana, bot zustava ve voice.")
 

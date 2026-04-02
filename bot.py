@@ -70,6 +70,7 @@ class MyClient(discord.Client):
         self.ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
         self.music_queues = {}
         self.current_tracks = {}
+        self.looped_guilds = set()
 
     async def setup_hook(self):
         pass
@@ -300,6 +301,11 @@ async def play_next_in_queue(guild_id: int):
     if voice_client.is_playing() or voice_client.is_paused():
         return
 
+    current_track = bot.current_tracks.get(guild_id)
+    if guild_id in bot.looped_guilds and current_track:
+        await start_track(current_track["interaction"], voice_client, current_track)
+        return
+
     if not queue:
         bot.current_tracks.pop(guild_id, None)
         return
@@ -387,6 +393,7 @@ async def stop(interaction: discord.Interaction):
     queue = get_guild_queue(interaction.guild_id)
     queue.clear()
     bot.current_tracks.pop(interaction.guild_id, None)
+    bot.looped_guilds.discard(interaction.guild_id)
 
     if voice_client.is_playing() or voice_client.is_paused():
         voice_client.stop()
@@ -394,8 +401,8 @@ async def stop(interaction: discord.Interaction):
     await interaction.response.send_message("Prehravani zastaveno, queue smazana, bot zustava ve voice.")
 
 
-@bot.tree.command(name="next", description="Preskoci aktualni pisnicku")
-async def next_track(interaction: discord.Interaction):
+@bot.tree.command(name="skip", description="Preskoci aktualni pisnicku")
+async def skip_track(interaction: discord.Interaction):
     voice_client = interaction.guild.voice_client
     if not voice_client or not (voice_client.is_playing() or voice_client.is_paused()):
         await interaction.response.send_message(
@@ -404,6 +411,7 @@ async def next_track(interaction: discord.Interaction):
         )
         return
 
+    bot.looped_guilds.discard(interaction.guild_id)
     voice_client.stop()
     queue = get_guild_queue(interaction.guild_id)
     if queue:
@@ -414,6 +422,36 @@ async def next_track(interaction: discord.Interaction):
         await interaction.response.send_message(
             "Aktualni pisnicka byla preskocena. Queue je prazdna."
         )
+
+
+@bot.tree.command(name="loop", description="Zapne loop pro aktualni pisnicku")
+async def loop_track(interaction: discord.Interaction):
+    voice_client = interaction.guild.voice_client
+    current_track = bot.current_tracks.get(interaction.guild_id)
+    if not voice_client or not current_track:
+        await interaction.response.send_message(
+            "Ted neni zadna aktualni pisnicka, kterou by slo loopovat.",
+            ephemeral=True,
+        )
+        return
+
+    bot.looped_guilds.add(interaction.guild_id)
+    await interaction.response.send_message(
+        f"Loop zapnuty pro **{current_track['title']}**."
+    )
+
+
+@bot.tree.command(name="stoplooping", description="Vypne loop aktualni pisnicky")
+async def stop_looping(interaction: discord.Interaction):
+    if interaction.guild_id not in bot.looped_guilds:
+        await interaction.response.send_message(
+            "Loop uz je vypnuty.",
+            ephemeral=True,
+        )
+        return
+
+    bot.looped_guilds.discard(interaction.guild_id)
+    await interaction.response.send_message("Loop vypnuty.")
 
 
 # ── Riot API helpers ─────────────────────────────────────────────────────────

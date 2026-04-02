@@ -5,7 +5,20 @@ import asyncio
 from datetime import datetime
 import psycopg2
 import aiohttp
+import yt_dlp
 from config import DISCORD_TOKEN, DATABASE_URL, RIOT_API_KEY
+
+FFMPEG_OPTIONS = {
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    "options": "-vn",
+}
+
+YTDL_OPTIONS = {
+    "format": "bestaudio/best",
+    "noplaylist": True,
+    "quiet": True,
+    "default_search": "ytsearch",
+}
 
 
 # DB connection
@@ -52,6 +65,7 @@ class MyClient(discord.Client):
     def __init__(self):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
+        self.ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
     async def setup_hook(self):
         pass
@@ -220,6 +234,96 @@ async def ranks(interaction: discord.Interaction):
         "👑 **Challenger** — 98 h\n"
     )
     await interaction.response.send_message(text)
+
+
+async def extract_audio_info(query):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, lambda: bot.ytdl.extract_info(query, download=False)
+    )
+
+
+async def ensure_voice_client(interaction: discord.Interaction):
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.followup.send(
+            "Musis byt ve voice roomce, aby bot mohl prehravat.",
+            ephemeral=True,
+        )
+        return None
+
+    channel = interaction.user.voice.channel
+    voice_client = interaction.guild.voice_client
+
+    if voice_client and voice_client.channel != channel:
+        await voice_client.move_to(channel)
+        return voice_client
+
+    if voice_client:
+        return voice_client
+
+    return await channel.connect()
+
+
+@bot.tree.command(name="play", description="Prehraje audio z YouTube do voice roomky")
+@app_commands.describe(query="YouTube odkaz nebo nazev videa")
+async def play(interaction: discord.Interaction, query: str):
+    await interaction.response.defer(thinking=True)
+
+    voice_client = await ensure_voice_client(interaction)
+    if voice_client is None:
+        return
+
+    try:
+        info = await extract_audio_info(query)
+        if "entries" in info:
+            info = next((entry for entry in info["entries"] if entry), None)
+
+        if not info:
+            await interaction.followup.send(
+                "Nepodarilo se najit zadne prehratelne video.",
+                ephemeral=True,
+            )
+            return
+
+        stream_url = info.get("url")
+        title = info.get("title", query)
+        webpage_url = info.get("webpage_url", query)
+
+        if not stream_url:
+            await interaction.followup.send(
+                "Nepodarilo se ziskat audio stream z YouTube.",
+                ephemeral=True,
+            )
+            return
+
+        if voice_client.is_playing() or voice_client.is_paused():
+            voice_client.stop()
+
+        source = discord.FFmpegPCMAudio(stream_url, **FFMPEG_OPTIONS)
+        voice_client.play(source)
+        await interaction.followup.send(f"Prehravam **{title}**\n<{webpage_url}>")
+    except Exception as exc:
+        await interaction.followup.send(
+            f"Prehravani selhalo: `{exc}`",
+            ephemeral=True,
+        )
+
+
+@bot.tree.command(name="stop", description="Zastavi prehravani a odpoji bota")
+async def stop(interaction: discord.Interaction):
+    voice_client = interaction.guild.voice_client
+    if not voice_client:
+        await interaction.response.send_message(
+            "Bot neni pripojeny do zadne voice roomky.",
+            ephemeral=True,
+        )
+        return
+
+    if voice_client.is_playing() or voice_client.is_paused():
+        voice_client.stop()
+
+    await voice_client.disconnect()
+    await interaction.response.send_message("Prehravani zastaveno, bot se odpojil.")
 
 
 # ── Riot API helpers ─────────────────────────────────────────────────────────

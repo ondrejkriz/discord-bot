@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 import time
 import asyncio
+from collections import deque
 from datetime import datetime
 import psycopg2
 import aiohttp
@@ -67,6 +68,8 @@ class MyClient(discord.Client):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self.ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+        self.music_queues = {}
+        self.current_tracks = {}
 
     async def setup_hook(self):
         pass
@@ -266,6 +269,45 @@ async def ensure_voice_client(interaction: discord.Interaction):
     return await asyncio.wait_for(channel.connect(), timeout=15)
 
 
+def get_guild_queue(guild_id: int):
+    return bot.music_queues.setdefault(guild_id, deque())
+
+
+async def start_track(interaction: discord.Interaction, voice_client, track):
+    guild_id = interaction.guild_id
+    source = discord.FFmpegPCMAudio(track["stream_url"], **FFMPEG_OPTIONS)
+
+    def after_playback(error):
+        if error:
+            print(f"/play after callback failed: {error!r}")
+        bot.loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(play_next_in_queue(guild_id))
+        )
+
+    bot.current_tracks[guild_id] = track
+    voice_client.play(source, after=after_playback)
+    print(f"/play started: {track['title']}")
+
+
+async def play_next_in_queue(guild_id: int):
+    queue = get_guild_queue(guild_id)
+    voice_client = bot.get_guild(guild_id).voice_client if bot.get_guild(guild_id) else None
+
+    if not voice_client:
+        bot.current_tracks.pop(guild_id, None)
+        return
+
+    if voice_client.is_playing() or voice_client.is_paused():
+        return
+
+    if not queue:
+        bot.current_tracks.pop(guild_id, None)
+        return
+
+    next_track = queue.popleft()
+    await start_track(next_track["interaction"], voice_client, next_track)
+
+
 @bot.tree.command(name="play", description="Prehraje audio z YouTube do voice roomky")
 @app_commands.describe(query="YouTube odkaz nebo nazev videa")
 async def play(interaction: discord.Interaction, query: str):
@@ -300,12 +342,23 @@ async def play(interaction: discord.Interaction, query: str):
             )
             return
 
-        if voice_client.is_playing() or voice_client.is_paused():
-            voice_client.stop()
+        track = {
+            "title": title,
+            "stream_url": stream_url,
+            "webpage_url": webpage_url,
+            "requested_by": interaction.user.display_name,
+            "interaction": interaction,
+        }
 
-        source = discord.FFmpegPCMAudio(stream_url, **FFMPEG_OPTIONS)
-        voice_client.play(source)
-        print(f"/play started: {title}")
+        queue = get_guild_queue(interaction.guild_id)
+        if voice_client.is_playing() or voice_client.is_paused():
+            queue.append(track)
+            await interaction.followup.send(
+                f"Pridano do queue na pozici **{len(queue)}**: **{title}**\n<{webpage_url}>"
+            )
+            return
+
+        await start_track(interaction, voice_client, track)
         await interaction.followup.send(f"Prehravam **{title}**\n<{webpage_url}>")
     except asyncio.TimeoutError:
         print(f"/play timeout for query: {query}")
@@ -321,7 +374,7 @@ async def play(interaction: discord.Interaction, query: str):
         )
 
 
-@bot.tree.command(name="stop", description="Zastavi prehravani a odpoji bota")
+@bot.tree.command(name="stop", description="Zastavi prehravani a vymaze queue")
 async def stop(interaction: discord.Interaction):
     voice_client = interaction.guild.voice_client
     if not voice_client:
@@ -331,11 +384,36 @@ async def stop(interaction: discord.Interaction):
         )
         return
 
+    queue = get_guild_queue(interaction.guild_id)
+    queue.clear()
+    bot.current_tracks.pop(interaction.guild_id, None)
+
     if voice_client.is_playing() or voice_client.is_paused():
         voice_client.stop()
 
-    await voice_client.disconnect()
-    await interaction.response.send_message("Prehravani zastaveno, bot se odpojil.")
+    await interaction.response.send_message("Prehravani zastaveno, queue smazana, bot zustava ve voice.")
+
+
+@bot.tree.command(name="next", description="Preskoci aktualni pisnicku")
+async def next_track(interaction: discord.Interaction):
+    voice_client = interaction.guild.voice_client
+    if not voice_client or not (voice_client.is_playing() or voice_client.is_paused()):
+        await interaction.response.send_message(
+            "Ted nic nehraje, neni co preskocit.",
+            ephemeral=True,
+        )
+        return
+
+    voice_client.stop()
+    queue = get_guild_queue(interaction.guild_id)
+    if queue:
+        await interaction.response.send_message(
+            f"Preskakuju aktualni pisnicku. V queue zbyva **{len(queue)}** polozek."
+        )
+    else:
+        await interaction.response.send_message(
+            "Aktualni pisnicka byla preskocena. Queue je prazdna."
+        )
 
 
 # ── Riot API helpers ─────────────────────────────────────────────────────────

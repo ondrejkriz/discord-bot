@@ -18,6 +18,7 @@ YTDL_OPTIONS = {
     "noplaylist": True,
     "quiet": True,
     "default_search": "ytsearch",
+    "source_address": "0.0.0.0",
 }
 
 
@@ -237,9 +238,10 @@ async def ranks(interaction: discord.Interaction):
 
 
 async def extract_audio_info(query):
+    normalized_query = query if query.startswith(("http://", "https://")) else f"ytsearch1:{query}"
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        None, lambda: bot.ytdl.extract_info(query, download=False)
+        None, lambda: bot.ytdl.extract_info(normalized_query, download=False)
     )
 
 
@@ -261,20 +263,22 @@ async def ensure_voice_client(interaction: discord.Interaction):
     if voice_client:
         return voice_client
 
-    return await channel.connect()
+    return await asyncio.wait_for(channel.connect(), timeout=15)
 
 
 @bot.tree.command(name="play", description="Prehraje audio z YouTube do voice roomky")
 @app_commands.describe(query="YouTube odkaz nebo nazev videa")
 async def play(interaction: discord.Interaction, query: str):
     await interaction.response.defer(thinking=True)
-
-    voice_client = await ensure_voice_client(interaction)
-    if voice_client is None:
-        return
+    print(f"/play requested by {interaction.user} with query: {query}")
 
     try:
-        info = await extract_audio_info(query)
+        voice_client = await ensure_voice_client(interaction)
+        if voice_client is None:
+            return
+
+        print(f"/play voice ready in guild {interaction.guild_id}")
+        info = await asyncio.wait_for(extract_audio_info(query), timeout=25)
         if "entries" in info:
             info = next((entry for entry in info["entries"] if entry), None)
 
@@ -301,8 +305,16 @@ async def play(interaction: discord.Interaction, query: str):
 
         source = discord.FFmpegPCMAudio(stream_url, **FFMPEG_OPTIONS)
         voice_client.play(source)
+        print(f"/play started: {title}")
         await interaction.followup.send(f"Prehravam **{title}**\n<{webpage_url}>")
+    except asyncio.TimeoutError:
+        print(f"/play timeout for query: {query}")
+        await interaction.followup.send(
+            "Prehravani vyprselo. Bot se nestihl pripojit nebo nacist YouTube audio.",
+            ephemeral=True,
+        )
     except Exception as exc:
+        print(f"/play failed: {exc!r}")
         await interaction.followup.send(
             f"Prehravani selhalo: `{exc}`",
             ephemeral=True,

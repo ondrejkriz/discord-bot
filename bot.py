@@ -16,7 +16,6 @@ FFMPEG_OPTIONS = {
 }
 
 YTDL_OPTIONS = {
-    "format": "251/250/249/140/139/bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "default_search": "ytsearch",
@@ -269,17 +268,14 @@ async def extract_audio_info(query):
         YTDL_OPTIONS,
         {
             **YTDL_OPTIONS,
-            "format": "233/234/251/250/249/140/139/bestaudio/best",
             "extractor_args": {"youtube": {"player_client": ["web"]}},
         },
         {
             **YTDL_OPTIONS,
-            "format": "140/139/251/250/249/bestaudio/best",
             "extractor_args": {"youtube": {"player_client": ["android"]}},
         },
         {
             **YTDL_OPTIONS,
-            "format": "140/251/250/249/best",
             "extractor_args": {"youtube": {"player_client": ["tv", "web"]}},
         },
     ]
@@ -301,6 +297,28 @@ async def extract_audio_info(query):
         raise last_error
 
     raise RuntimeError("yt-dlp could not extract audio info.")
+
+
+async def log_extraction_diagnostics(query):
+    normalized_query = query if query.startswith(("http://", "https://")) else f"ytsearch1:{query}"
+    loop = asyncio.get_running_loop()
+    diagnostic_options = {
+        **YTDL_OPTIONS,
+        "quiet": False,
+        "verbose": True,
+        "simulate": True,
+        "listformats": True,
+    }
+
+    def run_diagnostics():
+        try:
+            yt_dlp.YoutubeDL(diagnostic_options).extract_info(
+                normalized_query, download=False
+            )
+        except Exception as exc:
+            print(f"/play diagnostics failed: {exc!r}")
+
+    await loop.run_in_executor(None, run_diagnostics)
 
 
 def select_audio_stream(info):
@@ -445,7 +463,7 @@ async def play_next_in_queue(guild_id: int):
 
 
 @bot.tree.command(name="play", description="Prehraje audio z YouTube do voice roomky")
-@app_commands.describe(query="YouTube odkaz nebo nazev videa")
+@app_commands.describe(query="YouTube nebo SoundCloud odkaz, pripadne nazev videa")
 async def play(interaction: discord.Interaction, query: str):
     await interaction.response.defer(thinking=True)
     print(f"/play requested by {interaction.user} with query: {query}")
@@ -471,6 +489,9 @@ async def play(interaction: discord.Interaction, query: str):
         stream_url = select_audio_stream(info)
         title = info.get("title", query)
         webpage_url = info.get("webpage_url", query)
+        print(
+            f"/play extracted title={title!r} extractor={info.get('extractor_key')} formats={len(info.get('formats') or [])}"
+        )
 
         if not stream_url:
             await interaction.followup.send(
@@ -505,6 +526,7 @@ async def play(interaction: discord.Interaction, query: str):
         )
     except Exception as exc:
         print(f"/play failed: {exc!r}")
+        await log_extraction_diagnostics(query)
         await interaction.followup.send(
             f"Prehravani selhalo: `{exc}`",
             ephemeral=True,

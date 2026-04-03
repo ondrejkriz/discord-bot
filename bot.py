@@ -1279,6 +1279,86 @@ async def teamlol(interaction: discord.Interaction):
     await interaction.followup.send(text)
 
 
+@bot.tree.command(name="kontrolajizdenek", description="Zkontroluj, kdo z ulozenych LoL profilu je prave ingame")
+async def kontrolajizdenek(interaction: discord.Interaction):
+    if not RIOT_API_KEY:
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
+        return
+
+    cursor.execute("SELECT label, riot_name, tag, region FROM lol_profiles ORDER BY id ASC")
+    profiles = cursor.fetchall()
+
+    if not profiles:
+        await interaction.response.send_message(
+            "📭 Žádné profily. Přidej je pomocí `/addprofile`."
+        )
+        return
+
+    await interaction.response.defer()
+    headers = {"X-Riot-Token": RIOT_API_KEY}
+    ingame_profiles = []
+    offline_profiles = []
+    failed_profiles = []
+
+    async with aiohttp.ClientSession() as session:
+        await load_champion_cache(session)
+
+        for label, riot_name, tag, region in profiles:
+            region = region.lower()
+            routing = get_routing(region)
+            puuid, err = await fetch_puuid(session, riot_name, tag, routing, headers)
+
+            if err == "not_found":
+                failed_profiles.append(f"❌ **{label}** (`{riot_name}#{tag}`) — hráč nenalezen")
+                continue
+            if err:
+                failed_profiles.append(f"❌ **{label}** (`{riot_name}#{tag}`) — chyba účtu ({err})")
+                continue
+
+            spectator_url = f"https://{region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{puuid}"
+            async with session.get(spectator_url, headers=headers) as resp:
+                if resp.status == 404:
+                    offline_profiles.append(f"💤 **{label}** (`{riot_name}#{tag}`)")
+                    continue
+                if resp.status != 200:
+                    failed_profiles.append(f"❌ **{label}** (`{riot_name}#{tag}`) — chyba spectator API ({resp.status})")
+                    continue
+                game = await resp.json()
+
+            queue = QUEUE_NAMES.get(game.get("gameQueueConfigId", 0), "Unknown")
+            duration = game.get("gameLength", 0) // 60
+            participants = game.get("participants", [])
+            our = next((p for p in participants if p["puuid"] == puuid), None)
+            champion_id = our["championId"] if our else None
+            champion_name = champion_cache.get(champion_id, f"ID:{champion_id}") if champion_id is not None else "?"
+            ingame_profiles.append(
+                f"🎮 **{label}** (`{riot_name}#{tag}`) — **{champion_name}**, {queue}, {duration} min"
+            )
+
+    text = "🎫 **Kontrola jízdenek**\n\n"
+
+    if ingame_profiles:
+        text += "🟢 **Právě hrají:**\n"
+        for line in ingame_profiles:
+            text += f"{line}\n"
+        text += "\n"
+    else:
+        text += "🟢 **Právě hrají:** nikdo\n\n"
+
+    if offline_profiles:
+        text += "💤 **Mimo hru:**\n"
+        for line in offline_profiles:
+            text += f"{line}\n"
+        text += "\n"
+
+    if failed_profiles:
+        text += "⚠️ **Nepodařilo se načíst:**\n"
+        for line in failed_profiles:
+            text += f"{line}\n"
+
+    await interaction.followup.send(text)
+
+
 # ── Countdown ────────────────────────────────────────────────────────────────
 
 @bot.tree.command(name="setcountdown", description="Nastav nový odpočet a ulož ho")

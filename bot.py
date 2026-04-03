@@ -301,10 +301,14 @@ def cancel_disconnect_task(guild_id: int):
         task.cancel()
 
 
-async def schedule_idle_disconnect(guild_id: int):
+def start_idle_disconnect_task(guild_id: int):
     cancel_disconnect_task(guild_id)
-    bot.disconnect_tasks[guild_id] = asyncio.current_task()
+    bot.disconnect_tasks[guild_id] = asyncio.create_task(
+        schedule_idle_disconnect(guild_id)
+    )
 
+
+async def schedule_idle_disconnect(guild_id: int):
     try:
         await asyncio.sleep(IDLE_DISCONNECT_SECONDS)
         guild = bot.get_guild(guild_id)
@@ -367,10 +371,7 @@ async def play_next_in_queue(guild_id: int):
 
     if not queue:
         bot.current_tracks.pop(guild_id, None)
-        cancel_disconnect_task(guild_id)
-        bot.disconnect_tasks[guild_id] = asyncio.create_task(
-            schedule_idle_disconnect(guild_id)
-        )
+        start_idle_disconnect_task(guild_id)
         return
 
     next_track = queue.popleft()
@@ -463,9 +464,7 @@ async def stop(interaction: discord.Interaction):
     if voice_client.is_playing() or voice_client.is_paused():
         voice_client.stop()
     else:
-        bot.disconnect_tasks[interaction.guild_id] = asyncio.create_task(
-            schedule_idle_disconnect(interaction.guild_id)
-        )
+        start_idle_disconnect_task(interaction.guild_id)
 
     await interaction.response.send_message("Prehravani zastaveno, queue smazana, bot zustava ve voice.")
 

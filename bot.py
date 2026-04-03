@@ -21,6 +21,7 @@ YTDL_OPTIONS = {
     "quiet": True,
     "default_search": "ytsearch",
     "source_address": "0.0.0.0",
+    "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
 }
 
 IDLE_DISCONNECT_SECONDS = 600
@@ -87,7 +88,6 @@ class MyClient(discord.Client):
     def __init__(self):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
-        self.ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
         self.music_queues = {}
         self.current_tracks = {}
         self.looped_guilds = set()
@@ -265,9 +265,36 @@ async def ranks(interaction: discord.Interaction):
 async def extract_audio_info(query):
     normalized_query = query if query.startswith(("http://", "https://")) else f"ytsearch1:{query}"
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None, lambda: bot.ytdl.extract_info(normalized_query, download=False)
-    )
+    option_sets = [
+        YTDL_OPTIONS,
+        {
+            **YTDL_OPTIONS,
+            "format": "bestaudio*/bestaudio/best",
+        },
+        {
+            **YTDL_OPTIONS,
+            "format": "best",
+            "extractor_args": {"youtube": {"player_client": ["web"]}},
+        },
+    ]
+
+    last_error = None
+    for options in option_sets:
+        try:
+            return await loop.run_in_executor(
+                None,
+                lambda current_options=options: yt_dlp.YoutubeDL(
+                    current_options
+                ).extract_info(normalized_query, download=False),
+            )
+        except yt_dlp.utils.DownloadError as exc:
+            last_error = exc
+            print(f"/play yt-dlp fallback failed: {exc}")
+
+    if last_error:
+        raise last_error
+
+    raise RuntimeError("yt-dlp could not extract audio info.")
 
 
 async def ensure_voice_client(interaction: discord.Interaction):

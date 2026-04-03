@@ -345,6 +345,29 @@ async def log_extraction_diagnostics(query):
     await loop.run_in_executor(None, run_diagnostics)
 
 
+def build_playback_error_message(query: str, exc: Exception):
+    message = str(exc)
+    lowered_message = message.lower()
+    lowered_query = query.lower()
+    is_soundcloud = "soundcloud.com" in lowered_query
+
+    if is_soundcloud:
+        return f"SoundCloud prehravani selhalo: `{exc}`"
+
+    if "requested format is not available" in lowered_message:
+        return (
+            "Tohle YouTube video je momentalne blokovane YouTube ochranou a bot z nej nedostal prehratelny audio stream. "
+            "Zkus jiny YouTube link nebo radsi SoundCloud."
+        )
+
+    if "sign in to confirm you’re not a bot" in lowered_message or "sign in to confirm you're not a bot" in lowered_message:
+        return (
+            "YouTube chce potvrzeni proti botum. Zkus jiny YouTube link nebo pouzij SoundCloud."
+        )
+
+    return f"Prehravani selhalo: `{exc}`"
+
+
 def select_audio_stream(info):
     formats = info.get("formats") or []
     audio_formats = [
@@ -552,7 +575,7 @@ async def play(interaction: discord.Interaction, query: str):
         print(f"/play failed: {exc!r}")
         await log_extraction_diagnostics(query)
         await interaction.followup.send(
-            f"Prehravani selhalo: `{exc}`",
+            build_playback_error_message(query, exc),
             ephemeral=True,
         )
 

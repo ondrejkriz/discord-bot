@@ -16,7 +16,6 @@ FFMPEG_OPTIONS = {
 }
 
 YTDL_OPTIONS = {
-    "format": "bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "default_search": "ytsearch",
@@ -269,12 +268,11 @@ async def extract_audio_info(query):
         YTDL_OPTIONS,
         {
             **YTDL_OPTIONS,
-            "format": "bestaudio*/bestaudio/best",
+            "extractor_args": {"youtube": {"player_client": ["web"]}},
         },
         {
             **YTDL_OPTIONS,
-            "format": "best",
-            "extractor_args": {"youtube": {"player_client": ["web"]}},
+            "extractor_args": {"youtube": {"player_client": ["android"]}},
         },
     ]
 
@@ -295,6 +293,39 @@ async def extract_audio_info(query):
         raise last_error
 
     raise RuntimeError("yt-dlp could not extract audio info.")
+
+
+def select_audio_stream(info):
+    formats = info.get("formats") or []
+    audio_formats = [
+        fmt
+        for fmt in formats
+        if fmt.get("url")
+        and fmt.get("acodec") not in (None, "none")
+        and fmt.get("vcodec") == "none"
+    ]
+
+    if audio_formats:
+        audio_formats.sort(
+            key=lambda fmt: (
+                fmt.get("abr") or 0,
+                fmt.get("tbr") or 0,
+                fmt.get("asr") or 0,
+            ),
+            reverse=True,
+        )
+        return audio_formats[0]["url"]
+
+    direct_url = info.get("url")
+    if direct_url:
+        return direct_url
+
+    requested_formats = info.get("requested_formats") or []
+    for fmt in requested_formats:
+        if fmt.get("url") and fmt.get("acodec") not in (None, "none"):
+            return fmt["url"]
+
+    return None
 
 
 async def ensure_voice_client(interaction: discord.Interaction):
@@ -429,7 +460,7 @@ async def play(interaction: discord.Interaction, query: str):
             )
             return
 
-        stream_url = info.get("url")
+        stream_url = select_audio_stream(info)
         title = info.get("title", query)
         webpage_url = info.get("webpage_url", query)
 

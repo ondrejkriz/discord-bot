@@ -8,7 +8,14 @@ from datetime import datetime
 import psycopg2
 import aiohttp
 import yt_dlp
-from config import DISCORD_TOKEN, DATABASE_URL, RIOT_API_KEY, YOUTUBE_COOKIES
+from config import (
+    DISCORD_TOKEN,
+    DATABASE_URL,
+    RIOT_API_KEY,
+    YOUTUBE_COOKIES,
+    YOUTUBE_GVS_PO_TOKEN,
+    YOUTUBE_PLAYER_PO_TOKEN,
+)
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -20,7 +27,7 @@ YTDL_OPTIONS = {
     "quiet": True,
     "default_search": "ytsearch",
     "source_address": "0.0.0.0",
-    "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+    "extractor_args": {"youtube": {"player_client": ["mweb", "web"]}},
 }
 
 IDLE_DISCONNECT_SECONDS = 600
@@ -40,7 +47,24 @@ def configure_ytdl_cookies():
     print("YouTube cookies configured for yt-dlp.")
 
 
+def configure_ytdl_po_tokens():
+    youtube_args = YTDL_OPTIONS.setdefault("extractor_args", {}).setdefault("youtube", {})
+    po_tokens = []
+
+    if YOUTUBE_GVS_PO_TOKEN.strip():
+        po_tokens.append(f"mweb.gvs+{YOUTUBE_GVS_PO_TOKEN.strip()}")
+
+    if YOUTUBE_PLAYER_PO_TOKEN.strip():
+        po_tokens.append(f"mweb.player+{YOUTUBE_PLAYER_PO_TOKEN.strip()}")
+
+    if po_tokens:
+        youtube_args["po_token"] = po_tokens
+        youtube_args["player_client"] = ["mweb", "web"]
+        print("YouTube PO tokens configured for yt-dlp.")
+
+
 configure_ytdl_cookies()
+configure_ytdl_po_tokens()
 
 
 # DB connection

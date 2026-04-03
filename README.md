@@ -58,6 +58,8 @@ All LoL commands accept `jmeno` (Riot name), `tag` (Riot tag without #), and opt
 | `RAILWAY_DATABASE_URL` | PostgreSQL connection string |
 | `RIOT_API_KEY` | Riot Games API key (optional — disables LoL commands if missing) |
 | `YOUTUBE_COOKIES` | Optional Netscape-format YouTube cookies for yt-dlp when YouTube asks to sign in |
+| `YOUTUBE_GVS_PO_TOKEN` | Optional YouTube GVS PO token for yt-dlp when SABR-protected formats are missing |
+| `YOUTUBE_PLAYER_PO_TOKEN` | Optional YouTube player PO token for yt-dlp when a per-video token is needed |
 
 ### Requirements
 

@@ -16,6 +16,7 @@ FFMPEG_OPTIONS = {
 }
 
 YTDL_OPTIONS = {
+    "format": "251/250/249/140/139/bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "default_search": "ytsearch",
@@ -268,11 +269,18 @@ async def extract_audio_info(query):
         YTDL_OPTIONS,
         {
             **YTDL_OPTIONS,
+            "format": "233/234/251/250/249/140/139/bestaudio/best",
             "extractor_args": {"youtube": {"player_client": ["web"]}},
         },
         {
             **YTDL_OPTIONS,
+            "format": "140/139/251/250/249/bestaudio/best",
             "extractor_args": {"youtube": {"player_client": ["android"]}},
+        },
+        {
+            **YTDL_OPTIONS,
+            "format": "140/251/250/249/best",
+            "extractor_args": {"youtube": {"player_client": ["tv", "web"]}},
         },
     ]
 

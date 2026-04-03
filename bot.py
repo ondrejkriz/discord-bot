@@ -121,7 +121,6 @@ class MyClient(discord.Client):
         self.music_idle_deadlines = {}
         self.jumpscare_enabled_guilds = set()
         self.last_jumpscare_at = {}
-        self.jumpscare_track = None
         self.voice_automation_task = None
 
     async def setup_hook(self):
@@ -472,9 +471,6 @@ def get_occupied_voice_channel(guild: discord.Guild):
 
 
 async def load_jumpscare_track():
-    if bot.jumpscare_track:
-        return bot.jumpscare_track
-
     info = await extract_audio_info(JUMPSCARE_URL)
     if "entries" in info:
         info = next((entry for entry in info["entries"] if entry), None)
@@ -486,12 +482,11 @@ async def load_jumpscare_track():
     if not stream_url:
         raise RuntimeError("Jumpscare audio nema prehratelny stream.")
 
-    bot.jumpscare_track = {
+    return {
         "title": info.get("title", "Golden Freddy Jumpscare"),
         "stream_url": stream_url,
         "webpage_url": info.get("webpage_url", JUMPSCARE_URL),
     }
-    return bot.jumpscare_track
 
 
 async def run_jumpscare(guild: discord.Guild, channel: discord.VoiceChannel):

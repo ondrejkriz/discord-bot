@@ -226,28 +226,25 @@ async def on_message(message):
     )
 
 
-@bot.tree.interaction_check
-async def global_interaction_check(interaction: discord.Interaction) -> bool:
-    if interaction.type is not discord.InteractionType.application_command:
-        return True
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    if interaction.type is discord.InteractionType.application_command:
+        if interaction.guild and isinstance(interaction.user, discord.Member):
+            timed_out = await register_spam_action(
+                interaction.user,
+                bot.command_spam_tracker,
+                "Command spam: more than 6 commands in 10 seconds.",
+            )
+            if timed_out:
+                await announce_timeout(interaction.channel, interaction.user)
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "Byl ti udelen timeout na 7 dni za spamovani commandu.",
+                        ephemeral=True,
+                    )
+                return
 
-    if not interaction.guild or not isinstance(interaction.user, discord.Member):
-        return True
-
-    timed_out = await register_spam_action(
-        interaction.user,
-        bot.command_spam_tracker,
-        "Command spam: more than 6 commands in 10 seconds.",
-    )
-    if not timed_out:
-        return True
-
-    await announce_timeout(interaction.channel, interaction.user)
-    await interaction.response.send_message(
-        "Byl ti udelen timeout na 7 dni za spamovani commandu.",
-        ephemeral=True,
-    )
-    return False
+    await bot.tree._from_interaction(interaction)
 
 
 @bot.event

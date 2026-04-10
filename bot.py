@@ -38,6 +38,8 @@ JUMPSCARE_URL = "https://soundcloud.com/theabandonedtrustman/golden-freddy-jumps
 SPAM_WINDOW_SECONDS = 10
 SPAM_LIMIT = 3
 SPAM_TIMEOUT_DURATION = timedelta(days=7)
+TEST_TIMEOUT_ON_FIRST_MESSAGE = True
+TEST_TIMEOUT_DURATION = timedelta(minutes=5)
 COOKIE_FILE_PATH = Path("/tmp/youtube-cookies.txt")
 
 
@@ -140,7 +142,7 @@ jumpscare_group = app_commands.Group(
 bot.tree.add_command(jumpscare_group)
 
 
-async def apply_spam_timeout(member: discord.Member, reason: str):
+async def apply_member_timeout(member: discord.Member, duration: timedelta, reason: str):
     now = datetime.now(timezone.utc)
     disabled_until = member.communication_disabled_until
     if disabled_until and disabled_until > now:
@@ -164,7 +166,7 @@ async def apply_spam_timeout(member: discord.Member, reason: str):
         print(f"/moderation timeout skipped for {member}: role hierarchy prevents timeout")
         return False
 
-    timeout_until = now + SPAM_TIMEOUT_DURATION
+    timeout_until = now + duration
     try:
         await member.timeout(timeout_until, reason=reason)
     except discord.Forbidden as exc:
@@ -176,6 +178,10 @@ async def apply_spam_timeout(member: discord.Member, reason: str):
 
     print(f"/moderation timeout applied to {member} for reason: {reason}")
     return True
+
+
+async def apply_spam_timeout(member: discord.Member, reason: str):
+    return await apply_member_timeout(member, SPAM_TIMEOUT_DURATION, reason)
 
 
 async def announce_timeout(channel, member: discord.Member):
@@ -228,6 +234,16 @@ async def on_message(message):
 
     if not message.guild or not isinstance(message.author, discord.Member):
         return
+
+    if TEST_TIMEOUT_ON_FIRST_MESSAGE:
+        timed_out = await apply_member_timeout(
+            message.author,
+            TEST_TIMEOUT_DURATION,
+            "Timeout test: first message triggers a 5 minute timeout.",
+        )
+        if timed_out:
+            await announce_timeout(message.channel, message.author)
+            return
 
     timed_out = await register_spam_action(
         message.author,

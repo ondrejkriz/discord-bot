@@ -189,7 +189,7 @@ async def announce_timeout(channel, member: discord.Member):
         return
 
     try:
-        await channel.send(f"{member.mention} JE CHATRA A NEMUZE MLUVIT")
+        await channel.send(f"{member.mention} JE CHATRA A OMLOUVA SE")
     except Exception as exc:
         print(f"/moderation timeout announcement failed: {exc!r}")
 
@@ -272,6 +272,21 @@ async def on_message(message):
 async def on_interaction(interaction: discord.Interaction):
     if interaction.type is discord.InteractionType.application_command:
         if interaction.guild and isinstance(interaction.user, discord.Member):
+            if TEST_TIMEOUT_ON_FIRST_MESSAGE:
+                timed_out = await apply_member_timeout(
+                    interaction.user,
+                    TEST_TIMEOUT_DURATION,
+                    "Timeout test: first command triggers a 5 minute timeout.",
+                )
+                if timed_out:
+                    await announce_timeout(interaction.channel, interaction.user)
+                    if not interaction.response.is_done():
+                        await interaction.response.send_message(
+                            "Byl ti udelen timeout na 5 minut.",
+                            ephemeral=True,
+                        )
+                    return
+
             timed_out = await register_spam_action(
                 interaction.user,
                 bot.command_spam_tracker,

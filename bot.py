@@ -4,7 +4,7 @@ from pathlib import Path
 import time
 import asyncio
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from time import monotonic
 import psycopg2
 import aiohttp
@@ -35,6 +35,9 @@ IDLE_DISCONNECT_SECONDS = 300
 JUMPSCARE_INTERVAL_SECONDS = 1200
 JUMPSCARE_DURATION_SECONDS = 8
 JUMPSCARE_URL = "https://soundcloud.com/theabandonedtrustman/golden-freddy-jumpscare-sound?si=2d01cfeda3704e3cb8d49720ca354a01&utm_source=clipboard&utm_medium=text&utm_campaign=social_sharing"
+SPAM_WINDOW_SECONDS = 10
+SPAM_LIMIT = 6
+SPAM_TIMEOUT_DURATION = timedelta(days=7)
 COOKIE_FILE_PATH = Path("/tmp/youtube-cookies.txt")
 
 
@@ -122,6 +125,8 @@ class MyClient(discord.Client):
         self.jumpscare_enabled_guilds = set()
         self.last_jumpscare_at = {}
         self.voice_automation_task = None
+        self.message_spam_tracker = {}
+        self.command_spam_tracker = {}
 
     async def setup_hook(self):
         if self.voice_automation_task is None:
@@ -133,6 +138,38 @@ jumpscare_group = app_commands.Group(
     name="jumpscare", description="Zapne nebo vypne pravidelny voice jumpscare"
 )
 bot.tree.add_command(jumpscare_group)
+
+
+async def apply_spam_timeout(member: discord.Member, reason: str):
+    now = datetime.now(timezone.utc)
+    disabled_until = member.communication_disabled_until
+    if disabled_until and disabled_until > now:
+        return False
+
+    timeout_until = now + SPAM_TIMEOUT_DURATION
+    await member.timeout(timeout_until, reason=reason)
+    print(f"/moderation timeout applied to {member} for reason: {reason}")
+    return True
+
+
+async def register_spam_action(member: discord.Member, tracker: dict, reason: str):
+    if member.bot or not member.guild:
+        return False
+
+    key = (member.guild.id, member.id)
+    timestamps = tracker.setdefault(key, deque())
+    now = monotonic()
+
+    while timestamps and now - timestamps[0] > SPAM_WINDOW_SECONDS:
+        timestamps.popleft()
+
+    timestamps.append(now)
+
+    if len(timestamps) <= SPAM_LIMIT:
+        return False
+
+    timestamps.clear()
+    return await apply_spam_timeout(member, reason)
 
 
 @bot.event
@@ -153,6 +190,17 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    if not message.guild or not isinstance(message.author, discord.Member):
+        return
+
+    timed_out = await register_spam_action(
+        message.author,
+        bot.message_spam_tracker,
+        "Message spam: more than 6 messages in 10 seconds.",
+    )
+    if timed_out:
+        return
+
     user_id = str(message.author.id)
     username = message.author.name
 
@@ -165,6 +213,29 @@ async def on_message(message):
         """,
         (user_id, username),
     )
+
+
+@bot.tree.interaction_check
+async def global_interaction_check(interaction: discord.Interaction) -> bool:
+    if interaction.type is not discord.InteractionType.application_command:
+        return True
+
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        return True
+
+    timed_out = await register_spam_action(
+        interaction.user,
+        bot.command_spam_tracker,
+        "Command spam: more than 6 commands in 10 seconds.",
+    )
+    if not timed_out:
+        return True
+
+    await interaction.response.send_message(
+        "Byl ti udelen timeout na 7 dni za spamovani commandu.",
+        ephemeral=True,
+    )
+    return False
 
 
 @bot.event

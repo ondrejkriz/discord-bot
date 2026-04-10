@@ -36,7 +36,7 @@ JUMPSCARE_INTERVAL_SECONDS = 1200
 JUMPSCARE_DURATION_SECONDS = 8
 JUMPSCARE_URL = "https://soundcloud.com/theabandonedtrustman/golden-freddy-jumpscare-sound?si=2d01cfeda3704e3cb8d49720ca354a01&utm_source=clipboard&utm_medium=text&utm_campaign=social_sharing"
 SPAM_WINDOW_SECONDS = 10
-SPAM_LIMIT = 6
+SPAM_LIMIT = 3
 SPAM_TIMEOUT_DURATION = timedelta(days=7)
 COOKIE_FILE_PATH = Path("/tmp/youtube-cookies.txt")
 
@@ -206,7 +206,7 @@ async def on_message(message):
     timed_out = await register_spam_action(
         message.author,
         bot.message_spam_tracker,
-        "Message spam: more than 6 messages in 10 seconds.",
+        "Message spam: more than 3 messages in 10 seconds.",
     )
     if timed_out:
         await announce_timeout(message.channel, message.author)
@@ -233,7 +233,7 @@ async def on_interaction(interaction: discord.Interaction):
             timed_out = await register_spam_action(
                 interaction.user,
                 bot.command_spam_tracker,
-                "Command spam: more than 6 commands in 10 seconds.",
+                "Command spam: more than 3 commands in 10 seconds.",
             )
             if timed_out:
                 await announce_timeout(interaction.channel, interaction.user)

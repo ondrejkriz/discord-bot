@@ -146,8 +146,34 @@ async def apply_spam_timeout(member: discord.Member, reason: str):
     if disabled_until and disabled_until > now:
         return False
 
+    guild = member.guild
+    bot_member = guild.me or guild.get_member(bot.user.id)
+    if bot_member is None:
+        print(f"/moderation timeout skipped for {member}: bot member not found")
+        return False
+
+    if not bot_member.guild_permissions.moderate_members:
+        print(f"/moderation timeout skipped for {member}: missing Moderate Members permission")
+        return False
+
+    if member == guild.owner or member.guild_permissions.administrator:
+        print(f"/moderation timeout skipped for {member}: target cannot be timed out")
+        return False
+
+    if bot_member.top_role <= member.top_role:
+        print(f"/moderation timeout skipped for {member}: role hierarchy prevents timeout")
+        return False
+
     timeout_until = now + SPAM_TIMEOUT_DURATION
-    await member.timeout(timeout_until, reason=reason)
+    try:
+        await member.timeout(timeout_until, reason=reason)
+    except discord.Forbidden as exc:
+        print(f"/moderation timeout forbidden for {member}: {exc!r}")
+        return False
+    except discord.HTTPException as exc:
+        print(f"/moderation timeout http failure for {member}: {exc!r}")
+        return False
+
     print(f"/moderation timeout applied to {member} for reason: {reason}")
     return True
 

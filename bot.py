@@ -152,6 +152,16 @@ async def apply_spam_timeout(member: discord.Member, reason: str):
     return True
 
 
+async def announce_timeout(channel, member: discord.Member):
+    if not channel:
+        return
+
+    try:
+        await channel.send(f"{member.mention} JE CHATRA A NEMUZE MLUVIT")
+    except Exception as exc:
+        print(f"/moderation timeout announcement failed: {exc!r}")
+
+
 async def register_spam_action(member: discord.Member, tracker: dict, reason: str):
     if member.bot or not member.guild:
         return False
@@ -199,6 +209,7 @@ async def on_message(message):
         "Message spam: more than 6 messages in 10 seconds.",
     )
     if timed_out:
+        await announce_timeout(message.channel, message.author)
         return
 
     user_id = str(message.author.id)
@@ -231,6 +242,7 @@ async def global_interaction_check(interaction: discord.Interaction) -> bool:
     if not timed_out:
         return True
 
+    await announce_timeout(interaction.channel, interaction.user)
     await interaction.response.send_message(
         "Byl ti udelen timeout na 7 dni za spamovani commandu.",
         ephemeral=True,

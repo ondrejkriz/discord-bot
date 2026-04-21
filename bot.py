@@ -571,9 +571,29 @@ async def voice_automation_loop():
         await asyncio.sleep(15)
 
 
+async def refresh_track_stream(track):
+    source_query = track.get("source_query") or track.get("webpage_url") or track.get("title")
+    info = await extract_audio_info(source_query)
+    if "entries" in info:
+        info = next((entry for entry in info["entries"] if entry), None)
+
+    if not info:
+        raise RuntimeError("Nepodarilo se obnovit info o skladbe.")
+
+    stream_url = select_audio_stream(info)
+    if not stream_url:
+        raise RuntimeError("Nepodarilo se obnovit audio stream skladby.")
+
+    track["title"] = info.get("title", track.get("title", source_query))
+    track["stream_url"] = stream_url
+    track["webpage_url"] = info.get("webpage_url", track.get("webpage_url", source_query))
+    return track
+
+
 async def start_track(interaction: discord.Interaction, voice_client, track):
     guild_id = interaction.guild_id
     clear_music_idle_deadline(guild_id)
+    track = await refresh_track_stream(track)
     source = discord.FFmpegPCMAudio(track["stream_url"], **FFMPEG_OPTIONS)
 
     def after_playback(error):
@@ -601,7 +621,13 @@ async def play_next_in_queue(guild_id: int):
 
     current_track = bot.current_tracks.get(guild_id)
     if guild_id in bot.looped_guilds and current_track:
-        await start_track(current_track["interaction"], voice_client, current_track)
+        try:
+            await start_track(current_track["interaction"], voice_client, current_track)
+        except Exception as exc:
+            print(f"/loop replay failed in guild {guild_id}: {exc!r}")
+            bot.current_tracks.pop(guild_id, None)
+            bot.looped_guilds.discard(guild_id)
+            arm_music_idle_deadline(guild_id)
         return
 
     if not queue:
@@ -610,7 +636,11 @@ async def play_next_in_queue(guild_id: int):
         return
 
     next_track = queue.popleft()
-    await start_track(next_track["interaction"], voice_client, next_track)
+    try:
+        await start_track(next_track["interaction"], voice_client, next_track)
+    except Exception as exc:
+        print(f"/queue playback failed in guild {guild_id}: {exc!r}")
+        await play_next_in_queue(guild_id)
 
 
 @bot.tree.command(name="play", description="Prehraje audio z YouTube do voice roomky")
@@ -655,6 +685,7 @@ async def play(interaction: discord.Interaction, query: str):
             "title": title,
             "stream_url": stream_url,
             "webpage_url": webpage_url,
+            "source_query": query,
             "requested_by": interaction.user.display_name,
             "interaction": interaction,
         }

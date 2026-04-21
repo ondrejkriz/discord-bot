@@ -4,7 +4,7 @@ from pathlib import Path
 import time
 import asyncio
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from time import monotonic
 import psycopg2
 import aiohttp
@@ -36,11 +36,6 @@ IDLE_DISCONNECT_SECONDS = 300
 JUMPSCARE_INTERVAL_SECONDS = 1200
 JUMPSCARE_DURATION_SECONDS = 8
 JUMPSCARE_URL = "https://soundcloud.com/theabandonedtrustman/golden-freddy-jumpscare-sound?si=2d01cfeda3704e3cb8d49720ca354a01&utm_source=clipboard&utm_medium=text&utm_campaign=social_sharing"
-SPAM_WINDOW_SECONDS = 10
-SPAM_LIMIT = 3
-SPAM_TIMEOUT_DURATION = timedelta(days=7)
-TEST_TIMEOUT_ON_FIRST_MESSAGE = True
-TEST_TIMEOUT_DURATION = timedelta(minutes=5)
 COOKIE_FILE_PATH = Path("/tmp/youtube-cookies.txt")
 
 
@@ -128,8 +123,6 @@ class MyClient(discord.Client):
         self.jumpscare_enabled_guilds = set()
         self.last_jumpscare_at = {}
         self.voice_automation_task = None
-        self.message_spam_tracker = {}
-        self.command_spam_tracker = {}
 
     async def setup_hook(self):
         if self.voice_automation_task is None:
@@ -141,78 +134,6 @@ jumpscare_group = app_commands.Group(
     name="jumpscare", description="Zapne nebo vypne pravidelny voice jumpscare"
 )
 bot.tree.add_command(jumpscare_group)
-
-
-async def apply_member_timeout(member: discord.Member, duration: timedelta, reason: str):
-    now = datetime.now(timezone.utc)
-    disabled_until = member.communication_disabled_until
-    if disabled_until and disabled_until > now:
-        return False
-
-    guild = member.guild
-    bot_member = guild.me or guild.get_member(bot.user.id)
-    if bot_member is None:
-        print(f"/moderation timeout skipped for {member}: bot member not found")
-        return False
-
-    if not bot_member.guild_permissions.moderate_members:
-        print(f"/moderation timeout skipped for {member}: missing Moderate Members permission")
-        return False
-
-    if member == guild.owner or member.guild_permissions.administrator:
-        print(f"/moderation timeout skipped for {member}: target cannot be timed out")
-        return False
-
-    if bot_member.top_role <= member.top_role:
-        print(f"/moderation timeout skipped for {member}: role hierarchy prevents timeout")
-        return False
-
-    timeout_until = now + duration
-    try:
-        await member.timeout(timeout_until, reason=reason)
-    except discord.Forbidden as exc:
-        print(f"/moderation timeout forbidden for {member}: {exc!r}")
-        return False
-    except discord.HTTPException as exc:
-        print(f"/moderation timeout http failure for {member}: {exc!r}")
-        return False
-
-    print(f"/moderation timeout applied to {member} for reason: {reason}")
-    return True
-
-
-async def apply_spam_timeout(member: discord.Member, reason: str):
-    return await apply_member_timeout(member, SPAM_TIMEOUT_DURATION, reason)
-
-
-async def announce_timeout(channel, member: discord.Member):
-    if not channel:
-        return
-
-    try:
-        await channel.send(f"{member.mention} JE CHATRA A OMLOUVA SE")
-    except Exception as exc:
-        print(f"/moderation timeout announcement failed: {exc!r}")
-
-
-async def register_spam_action(member: discord.Member, tracker: dict, reason: str):
-    if member.bot or not member.guild:
-        return False
-
-    key = (member.guild.id, member.id)
-    timestamps = tracker.setdefault(key, deque())
-    now = monotonic()
-
-    while timestamps and now - timestamps[0] > SPAM_WINDOW_SECONDS:
-        timestamps.popleft()
-
-    timestamps.append(now)
-
-    if len(timestamps) <= SPAM_LIMIT:
-        return False
-
-    timestamps.clear()
-    return await apply_spam_timeout(member, reason)
 
 
 @bot.event
@@ -236,25 +157,6 @@ async def on_message(message):
     if not message.guild or not isinstance(message.author, discord.Member):
         return
 
-    if TEST_TIMEOUT_ON_FIRST_MESSAGE:
-        timed_out = await apply_member_timeout(
-            message.author,
-            TEST_TIMEOUT_DURATION,
-            "Timeout test: first message triggers a 5 minute timeout.",
-        )
-        if timed_out:
-            await announce_timeout(message.channel, message.author)
-            return
-
-    timed_out = await register_spam_action(
-        message.author,
-        bot.message_spam_tracker,
-        "Message spam: more than 3 messages in 10 seconds.",
-    )
-    if timed_out:
-        await announce_timeout(message.channel, message.author)
-        return
-
     user_id = str(message.author.id)
     username = message.author.name
 
@@ -271,37 +173,6 @@ async def on_message(message):
 
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
-    if interaction.type is discord.InteractionType.application_command:
-        if interaction.guild and isinstance(interaction.user, discord.Member):
-            if TEST_TIMEOUT_ON_FIRST_MESSAGE:
-                timed_out = await apply_member_timeout(
-                    interaction.user,
-                    TEST_TIMEOUT_DURATION,
-                    "Timeout test: first command triggers a 5 minute timeout.",
-                )
-                if timed_out:
-                    await announce_timeout(interaction.channel, interaction.user)
-                    if not interaction.response.is_done():
-                        await interaction.response.send_message(
-                            "Byl ti udelen timeout na 5 minut.",
-                            ephemeral=True,
-                        )
-                    return
-
-            timed_out = await register_spam_action(
-                interaction.user,
-                bot.command_spam_tracker,
-                "Command spam: more than 3 commands in 10 seconds.",
-            )
-            if timed_out:
-                await announce_timeout(interaction.channel, interaction.user)
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(
-                        "Byl ti udelen timeout na 7 dni za spamovani commandu.",
-                        ephemeral=True,
-                    )
-                return
-
     await bot.tree._from_interaction(interaction)
 
 

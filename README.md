@@ -75,7 +75,7 @@ All LoL commands accept `jmeno` (Riot name), `tag` (Riot tag without `#`), and o
 | `DISCORD_TOKEN` | Discord bot token |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `DATABASE_SSLMODE` | PostgreSQL SSL mode, defaults to `prefer` |
-| `RIOT_API_KEY` | Riot API key |
+| `RIOT_API_KEY` | Riot API key, optional if you do not use LoL commands |
 
 ## Deployment
 

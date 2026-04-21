@@ -74,18 +74,56 @@ All LoL commands accept `jmeno` (Riot name), `tag` (Riot tag without `#`), and o
 |----------|-------------|
 | `DISCORD_TOKEN` | Discord bot token |
 | `DATABASE_URL` | PostgreSQL connection string |
+| `DATABASE_SSLMODE` | PostgreSQL SSL mode, defaults to `prefer` |
 | `RIOT_API_KEY` | Riot API key |
 
 ## Deployment
 
-The project is set up to run on Railway with Docker.
+The project can run either on a hosted PostgreSQL provider such as Railway or on a Raspberry Pi with Docker Compose.
 
-The container installs:
+### Raspberry Pi with Docker
 
-- Python 3.11
-- `ffmpeg`
-- `nodejs`
-- Python dependencies from `requirements.txt`
+The repository includes:
+
+- `docker-compose.yml` with `bot`, `db`, and `watchtower`
+- `.github/workflows/docker-publish.yml` to build and publish an ARM64 image to GitHub Container Registry on every push to `main`
+- `.env.example` with the required environment variables
+
+Setup on the Raspberry Pi:
+
+```bash
+mkdir -p ~/discord-bot
+cd ~/discord-bot
+curl -O https://raw.githubusercontent.com/ondrejkriz/discord-bot/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/ondrejkriz/discord-bot/main/.env.example
+mv .env.example .env
+```
+
+Fill in `.env`, then start the stack:
+
+```bash
+docker compose up -d
+```
+
+How updates work:
+
+- GitHub Actions builds a new `linux/arm64` image and pushes it to `ghcr.io/ondrejkriz/discord-bot:latest`
+- `watchtower` checks for a new image every 60 seconds by default
+- when a new image is available, it pulls it and restarts only the bot container
+
+Registry access:
+
+- if the GitHub Container Registry package is public, no extra step is needed on the Raspberry Pi
+- if the package is private, log in once on the Raspberry Pi with `docker login ghcr.io`
+
+Persistent data:
+
+- PostgreSQL data is stored in the named Docker volume `postgres_data`
+
+Notes:
+
+- `DATABASE_SSLMODE=disable` is used only for the local Docker Postgres service
+- if you deploy to Railway or another managed database, set `DATABASE_SSLMODE=require`
 
 ## Main Dependencies
 

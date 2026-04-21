@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: discord-bot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-discordbot}
+      POSTGRES_USER: ${POSTGRES_USER:-discordbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-discordbot} -d ${POSTGRES_DB:-discordbot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    image: ghcr.io/ondrejkriz/discord-bot:latest
+    container_name: discord-bot
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      RIOT_API_KEY: ${RIOT_API_KEY}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-discordbot}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-discordbot}
+      DATABASE_SSLMODE: disable
+      YOUTUBE_COOKIES: ${YOUTUBE_COOKIES:-}
+      YOUTUBE_GVS_PO_TOKEN: ${YOUTUBE_GVS_PO_TOKEN:-}
+      YOUTUBE_PLAYER_PO_TOKEN: ${YOUTUBE_PLAYER_PO_TOKEN:-}
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: discord-bot-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-60}
+      WATCHTOWER_LABEL_ENABLE: "true"
+    command:
+      - --label-enable
+      - --rolling-restart
+
+volumes:
+  postgres_data:

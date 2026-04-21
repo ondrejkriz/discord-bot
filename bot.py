@@ -12,6 +12,7 @@ import yt_dlp
 from config import (
     DISCORD_TOKEN,
     DATABASE_URL,
+    DATABASE_SSLMODE,
     RIOT_API_KEY,
     YOUTUBE_COOKIES,
     YOUTUBE_GVS_PO_TOKEN,
@@ -77,7 +78,7 @@ configure_ytdl_po_tokens()
 
 
 # DB connection
-conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+conn = psycopg2.connect(DATABASE_URL, sslmode=DATABASE_SSLMODE)
 conn.autocommit = True
 cursor = conn.cursor()
 

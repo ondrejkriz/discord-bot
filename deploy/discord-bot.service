@@ -1,0 +1,17 @@
+[Unit]
+Description=discord-bot Docker Compose stack
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=krizo
+WorkingDirectory=/home/krizo/discord-bot
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose up -d --build
+
+[Install]
+WantedBy=multi-user.target

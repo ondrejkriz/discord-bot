@@ -109,10 +109,20 @@ Enable automatic updates every 5 minutes:
 
 ```bash
 chmod +x scripts/update-stack.sh
+sudo cp deploy/discord-bot.service /etc/systemd/system/
 sudo cp deploy/discord-bot-update.service /etc/systemd/system/
 sudo cp deploy/discord-bot-update.timer /etc/systemd/system/
 sudo systemctl daemon-reload
+sudo systemctl enable --now discord-bot.service
 sudo systemctl enable --now discord-bot-update.timer
+```
+
+Useful service commands:
+
+```bash
+sudo systemctl status discord-bot
+sudo systemctl restart discord-bot
+sudo systemctl stop discord-bot
 ```
 
 How updates work:

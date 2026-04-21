@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential ffmpeg libpq-dev nodejs npm \
+    && apt-get install -y --no-install-recommends build-essential ffmpeg libffi-dev libpq-dev nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

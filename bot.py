@@ -262,19 +262,19 @@ async def on_voice_state_update(member, before, after):
 def get_rank(voice_seconds):
     hours = voice_seconds / 3600
     if hours >= 98:
-        return "đź‘‘ Challenger"
+        return "👑 Challenger"
     elif hours >= 84:
-        return "đźźŞ Master"
+        return "🟪 Master"
     elif hours >= 70:
-        return "đźź¦ Diamond"
+        return "🟦 Diamond"
     elif hours >= 56:
-        return "đźź© Platinum"
+        return "🟩 Platinum"
     elif hours >= 28:
-        return "đźź¨ Gold"
+        return "🟨 Gold"
     elif hours >= 14:
-        return "â¬ś Silver"
+        return "⬜ Silver"
     else:
-        return "đźź« Bronze"
+        return "🟫 Bronze"
 
 
 def build_leaderboard():
@@ -284,33 +284,33 @@ def build_leaderboard():
         ORDER BY (messages + voice_seconds/60) DESC
     """)
     rows = cursor.fetchall()
-    text = "đźŹ† PracovnĂ­ dochĂˇzka đźŹ†\n\n"
+    text = "🏆 Pracovní docházka 🏆\n\n"
     for i, row in enumerate(rows, 1):
         username, messages, voice_secs = row
         hours = voice_secs // 3600
         minutes = (voice_secs % 3600) // 60
         rank = get_rank(voice_secs)
-        text += f"**#{i}** {rank} â€” {username} | **{messages} msgs** | **{hours}h {minutes}m voice**\n"
+        text += f"**#{i}** {rank} — {username} | **{messages} msgs** | **{hours}h {minutes}m voice**\n"
     return text
 
 
-@bot.tree.command(name="leaderboard", description="Zobraz ĹľebĹ™Ă­ÄŤek aktivnĂ­ch uĹľivatelĹŻ")
+@bot.tree.command(name="leaderboard", description="Zobraz žebříček aktivních uživatelů")
 async def leaderboard(interaction: discord.Interaction):
     text = build_leaderboard()
     await interaction.response.send_message(text)
 
 
-@bot.tree.command(name="ranks", description="Zobraz tabulku rankĹŻ a potĹ™ebnĂ© hodiny")
+@bot.tree.command(name="ranks", description="Zobraz tabulku ranků a potřebné hodiny")
 async def ranks(interaction: discord.Interaction):
     text = (
-        "đźŹ… **Tabulka rankĹŻ**\n\n"
-        "đźź« **Bronze** â€” 0 h\n"
-        "â¬ś **Silver** â€” 14 h\n"
-        "đźź¨ **Gold** â€” 28 h\n"
-        "đźź© **Platinum** â€” 56 h\n"
-        "đźź¦ **Diamond** â€” 70 h\n"
-        "đźźŞ **Master** â€” 84 h\n"
-        "đź‘‘ **Challenger** â€” 98 h\n"
+        "🏅 **Tabulka ranků**\n\n"
+        "🟫 **Bronze** — 0 h\n"
+        "⬜ **Silver** — 14 h\n"
+        "🟨 **Gold** — 28 h\n"
+        "🟩 **Platinum** — 56 h\n"
+        "🟦 **Diamond** — 70 h\n"
+        "🟪 **Master** — 84 h\n"
+        "👑 **Challenger** — 98 h\n"
     )
     await interaction.response.send_message(text)
 
@@ -833,16 +833,16 @@ QUEUE_NAMES = {
 }
 
 RANK_EMOJIS = {
-    "IRON": "âš™ď¸Ź",
-    "BRONZE": "đźĄ‰",
-    "SILVER": "đźĄ",
-    "GOLD": "đźĄ‡",
-    "PLATINUM": "đźŞ™",
-    "EMERALD": "đź’š",
-    "DIAMOND": "đź’Ž",
-    "MASTER": "đź”®",
-    "GRANDMASTER": "đź”´",
-    "CHALLENGER": "đź”·",
+    "IRON": "⚙️",
+    "BRONZE": "🥉",
+    "SILVER": "🥈",
+    "GOLD": "🥇",
+    "PLATINUM": "🪙",
+    "EMERALD": "💚",
+    "DIAMOND": "💎",
+    "MASTER": "🔮",
+    "GRANDMASTER": "🔴",
+    "CHALLENGER": "🔷",
 }
 
 

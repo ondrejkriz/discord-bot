@@ -151,12 +151,12 @@ async def on_ready():
     for guild in bot.guilds:
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
-        print(f"PĹ™Ă­kazy synkovĂˇny do: {guild.name}")
+        print(f"Příkazy synkovány do: {guild.name}")
     bot.tree.clear_commands(guild=None)
     await bot.tree.sync()
 
 
-# â”€â”€ Activity tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Activity tracking ────────────────────────────────────────────────────────
 
 @bot.event
 async def on_message(message):
@@ -257,7 +257,7 @@ async def on_voice_state_update(member, before, after):
                 )
 
 
-# â”€â”€ Leaderboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Leaderboard ──────────────────────────────────────────────────────────────
 
 def get_rank(voice_seconds):
     hours = voice_seconds / 3600
@@ -390,7 +390,7 @@ def build_playback_error_message(query: str, exc: Exception):
             "Zkus jiny YouTube link nebo radsi SoundCloud."
         )
 
-    if "sign in to confirm youâ€™re not a bot" in lowered_message or "sign in to confirm you're not a bot" in lowered_message:
+    if "sign in to confirm you're not a bot" in lowered_message:
         return (
             "YouTube chce potvrzeni proti botum. Zkus jiny YouTube link nebo pouzij SoundCloud."
         )
@@ -815,7 +815,7 @@ async def jumpscare_off(interaction: discord.Interaction):
     await interaction.response.send_message("Jumpscare vypnuty.")
 
 
-# â”€â”€ Riot API helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Riot API helpers ─────────────────────────────────────────────────────────
 
 champion_cache = {}
 
@@ -887,7 +887,7 @@ def riot_check(func):
     async def wrapper(interaction: discord.Interaction, *args, **kwargs):
         if not RIOT_API_KEY:
             await interaction.response.send_message(
-                "âťŚ RIOT_API_KEY nenĂ­ nastaven.", ephemeral=True
+                "❌ RIOT_API_KEY není nastaven.", ephemeral=True
             )
             return
         await func(interaction, *args, **kwargs)
@@ -943,17 +943,17 @@ async def fetch_steam_summaries(session, steam_ids):
     return {player["steamid"]: player for player in players}, None
 
 
-# â”€â”€ Riot commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Riot commands ─────────────────────────────────────────────────────────────
 
-@bot.tree.command(name="lol", description="Zkontroluj LoL rank a winrate hrĂˇÄŤe")
+@bot.tree.command(name="lol", description="Zkontroluj LoL rank a winrate hráče")
 @app_commands.describe(
-    jmeno="Riot jmĂ©no (napĹ™. Faker)",
-    tag="Riot tag bez # (napĹ™. EUW)",
-    region="Server (vĂ˝chozĂ­: euw1)",
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)",
 )
 async def lol(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
-        await interaction.response.send_message("âťŚ RIOT_API_KEY nenĂ­ nastaven.", ephemeral=True)
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
 
     await interaction.response.defer()
@@ -964,54 +964,54 @@ async def lol(interaction: discord.Interaction, jmeno: str, tag: str, region: st
     async with aiohttp.ClientSession() as session:
         puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
         if err == "not_found":
-            await interaction.followup.send(f"âťŚ HrĂˇÄŤ **{jmeno}#{tag}** nenalezen.")
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
             return
         if err:
-            await interaction.followup.send(f"âťŚ Chyba Riot API ({err}).")
+            await interaction.followup.send(f"❌ Chyba Riot API ({err}).")
             return
 
         ranked_url = f"https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}"
         async with session.get(ranked_url, headers=headers) as resp:
             if resp.status != 200:
-                await interaction.followup.send(f"âťŚ Chyba ranked API ({resp.status}).")
+                await interaction.followup.send(f"❌ Chyba ranked API ({resp.status}).")
                 return
             entries = await resp.json()
 
     solo = next((e for e in entries if e["queueType"] == "RANKED_SOLO_5x5"), None)
     flex = next((e for e in entries if e["queueType"] == "RANKED_FLEX_SR"), None)
 
-    text = f"đź“Š **{jmeno}#{tag}** â€” {region.upper()}\n\n"
+    text = f"📊 **{jmeno}#{tag}** — {region.upper()}\n\n"
 
     if solo:
         wins, losses = solo["wins"], solo["losses"]
         winrate = round(wins / (wins + losses) * 100, 1)
         emoji = RANK_EMOJIS.get(solo["tier"], "")
-        text += f"{emoji} **Solo/Duo:** {solo['tier']} {solo['rank']} â€” {solo['leaguePoints']} LP\n"
-        text += f"   âś… {wins}W / âťŚ {losses}L â€” winrate **{winrate}%**\n\n"
+        text += f"{emoji} **Solo/Duo:** {solo['tier']} {solo['rank']} — {solo['leaguePoints']} LP\n"
+        text += f"   ✅ {wins}W / ❌ {losses}L — winrate **{winrate}%**\n\n"
     else:
-        text += "âš™ď¸Ź **Solo/Duo:** Unranked\n\n"
+        text += "⚙️ **Solo/Duo:** Unranked\n\n"
 
     if flex:
         wins, losses = flex["wins"], flex["losses"]
         winrate = round(wins / (wins + losses) * 100, 1)
         emoji = RANK_EMOJIS.get(flex["tier"], "")
-        text += f"{emoji} **Flex:** {flex['tier']} {flex['rank']} â€” {flex['leaguePoints']} LP\n"
-        text += f"   âś… {wins}W / âťŚ {losses}L â€” winrate **{winrate}%**\n"
+        text += f"{emoji} **Flex:** {flex['tier']} {flex['rank']} — {flex['leaguePoints']} LP\n"
+        text += f"   ✅ {wins}W / ❌ {losses}L — winrate **{winrate}%**\n"
     else:
-        text += "âš™ď¸Ź **Flex:** Unranked\n"
+        text += "⚙️ **Flex:** Unranked\n"
 
     await interaction.followup.send(text)
 
 
-@bot.tree.command(name="ingame", description="Zkontroluj jestli hrĂˇÄŤ prĂˇvÄ› hraje")
+@bot.tree.command(name="ingame", description="Zkontroluj jestli hráč právě hraje")
 @app_commands.describe(
-    jmeno="Riot jmĂ©no (napĹ™. Faker)",
-    tag="Riot tag bez # (napĹ™. EUW)",
-    region="Server (vĂ˝chozĂ­: euw1)",
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)",
 )
 async def ingame(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
-        await interaction.response.send_message("âťŚ RIOT_API_KEY nenĂ­ nastaven.", ephemeral=True)
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
 
     await interaction.response.defer()
@@ -1022,10 +1022,10 @@ async def ingame(interaction: discord.Interaction, jmeno: str, tag: str, region:
     async with aiohttp.ClientSession() as session:
         puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
         if err == "not_found":
-            await interaction.followup.send(f"âťŚ HrĂˇÄŤ **{jmeno}#{tag}** nenalezen.")
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
             return
         if err:
-            await interaction.followup.send(f"âťŚ Chyba API ({err}).")
+            await interaction.followup.send(f"❌ Chyba API ({err}).")
             return
 
         await load_champion_cache(session)
@@ -1033,10 +1033,10 @@ async def ingame(interaction: discord.Interaction, jmeno: str, tag: str, region:
         spectator_url = f"https://{region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{puuid}"
         async with session.get(spectator_url, headers=headers) as resp:
             if resp.status == 404:
-                await interaction.followup.send(f"đź’¤ **{jmeno}#{tag}** momentĂˇlnÄ› nehraje.")
+                await interaction.followup.send(f"💤 **{jmeno}#{tag}** momentálně nehraje.")
                 return
             if resp.status != 200:
-                await interaction.followup.send(f"âťŚ Chyba Spectator API ({resp.status}).")
+                await interaction.followup.send(f"❌ Chyba Spectator API ({resp.status}).")
                 return
             game = await resp.json()
 
@@ -1046,37 +1046,37 @@ async def ingame(interaction: discord.Interaction, jmeno: str, tag: str, region:
     our = next((p for p in participants if p["puuid"] == puuid), None)
     our_champ = champion_cache.get(our["championId"], f"ID:{our['championId']}") if our else "?"
 
-    text = f"đźŽ® **{jmeno}#{tag}** prĂˇvÄ› hraje!\n\n"
-    text += f"đź—şď¸Ź **{queue}** | âŹ±ď¸Ź {duration} min\n"
-    text += f"đź¦¸ **Champion:** {our_champ}\n\n"
+    text = f"🎮 **{jmeno}#{tag}** právě hraje!\n\n"
+    text += f"🗺️ **{queue}** | ⏱️ {duration} min\n"
+    text += f"🦸 **Champion:** {our_champ}\n\n"
 
     team1 = [p for p in participants if p["teamId"] == 100]
     team2 = [p for p in participants if p["teamId"] == 200]
 
-    text += "đź”µ **Team 1:**\n"
+    text += "🔵 **Team 1:**\n"
     for p in team1:
         champ = champion_cache.get(p["championId"], f"ID:{p['championId']}")
-        marker = " â—€" if p["puuid"] == puuid else ""
-        text += f"  {champ} â€” {p.get('riotId', '?')}{marker}\n"
+        marker = " ◀" if p["puuid"] == puuid else ""
+        text += f"  {champ} — {p.get('riotId', '?')}{marker}\n"
 
-    text += "\nđź”´ **Team 2:**\n"
+    text += "\n🔴 **Team 2:**\n"
     for p in team2:
         champ = champion_cache.get(p["championId"], f"ID:{p['championId']}")
-        marker = " â—€" if p["puuid"] == puuid else ""
-        text += f"  {champ} â€” {p.get('riotId', '?')}{marker}\n"
+        marker = " ◀" if p["puuid"] == puuid else ""
+        text += f"  {champ} — {p.get('riotId', '?')}{marker}\n"
 
     await interaction.followup.send(text)
 
 
-@bot.tree.command(name="lastgame", description="Zobraz detail poslednĂ­ho zĂˇpasu")
+@bot.tree.command(name="lastgame", description="Zobraz detail posledního zápasu")
 @app_commands.describe(
-    jmeno="Riot jmĂ©no (napĹ™. Faker)",
-    tag="Riot tag bez # (napĹ™. EUW)",
-    region="Server (vĂ˝chozĂ­: euw1)",
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)",
 )
 async def lastgame(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
-        await interaction.response.send_message("âťŚ RIOT_API_KEY nenĂ­ nastaven.", ephemeral=True)
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
 
     await interaction.response.defer()
@@ -1087,61 +1087,61 @@ async def lastgame(interaction: discord.Interaction, jmeno: str, tag: str, regio
     async with aiohttp.ClientSession() as session:
         puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
         if err == "not_found":
-            await interaction.followup.send(f"âťŚ HrĂˇÄŤ **{jmeno}#{tag}** nenalezen.")
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
             return
         if err:
-            await interaction.followup.send(f"âťŚ Chyba API ({err}).")
+            await interaction.followup.send(f"❌ Chyba API ({err}).")
             return
 
         ids_url = f"https://{routing}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?count=1"
         async with session.get(ids_url, headers=headers) as resp:
             if resp.status != 200:
-                await interaction.followup.send(f"âťŚ Chyba Match API ({resp.status}).")
+                await interaction.followup.send(f"❌ Chyba Match API ({resp.status}).")
                 return
             match_ids = await resp.json()
             if not match_ids:
-                await interaction.followup.send(f"**{jmeno}#{tag}** nemĂˇ ĹľĂˇdnĂ© zĂˇznamy zĂˇpasĹŻ.")
+                await interaction.followup.send(f"**{jmeno}#{tag}** nemá žádné záznamy zápasů.")
                 return
 
         match_url = f"https://{routing}.api.riotgames.com/lol/match/v5/matches/{match_ids[0]}"
         async with session.get(match_url, headers=headers) as resp:
             if resp.status != 200:
-                await interaction.followup.send(f"âťŚ Chyba pĹ™i naÄŤĂ­tĂˇnĂ­ zĂˇpasu ({resp.status}).")
+                await interaction.followup.send(f"❌ Chyba při načítání zápasu ({resp.status}).")
                 return
             match = await resp.json()
 
     p = next((x for x in match["info"]["participants"] if x["puuid"] == puuid), None)
     if not p:
-        await interaction.followup.send("âťŚ HrĂˇÄŤ v zĂˇpasu nenalezen.")
+        await interaction.followup.send("❌ Hráč v zápasu nenalezen.")
         return
 
     queue = QUEUE_NAMES.get(match["info"]["queueId"], "Unknown")
     duration = match["info"]["gameDuration"] // 60
-    win = "âś… Win" if p["win"] else "âťŚ Loss"
+    win = "✅ Win" if p["win"] else "❌ Loss"
     kda_str = f"{p['kills']}/{p['deaths']}/{p['assists']}"
     cs = p.get("totalMinionsKilled", 0) + p.get("neutralMinionsKilled", 0)
     cs_per_min = round(cs / max(match["info"]["gameDuration"] / 60, 1), 1)
     damage = p.get("totalDamageDealtToChampions", 0)
 
-    text = f"đź“‹ **PoslednĂ­ zĂˇpas â€” {jmeno}#{tag}**\n\n"
-    text += f"{win} | đź—şď¸Ź {queue} | âŹ±ď¸Ź {duration} min\n"
-    text += f"đź¦¸ **{p['championName']}**\n"
-    text += f"âš”ď¸Ź **KDA:** {kda_str}\n"
-    text += f"đźŚľ **CS:** {cs} ({cs_per_min}/min)\n"
-    text += f"đź’Ą **Damage:** {damage:,}\n"
+    text = f"📋 **Poslední zápas — {jmeno}#{tag}**\n\n"
+    text += f"{win} | 🗺️ {queue} | ⏱️ {duration} min\n"
+    text += f"🦸 **{p['championName']}**\n"
+    text += f"⚔️ **KDA:** {kda_str}\n"
+    text += f"🌾 **CS:** {cs} ({cs_per_min}/min)\n"
+    text += f"💥 **Damage:** {damage:,}\n"
 
     await interaction.followup.send(text)
 
 
-@bot.tree.command(name="matchhistory", description="Zobraz historii poslednĂ­ch 5 zĂˇpasĹŻ")
+@bot.tree.command(name="matchhistory", description="Zobraz historii posledních 5 zápasů")
 @app_commands.describe(
-    jmeno="Riot jmĂ©no (napĹ™. Faker)",
-    tag="Riot tag bez # (napĹ™. EUW)",
-    region="Server (vĂ˝chozĂ­: euw1)",
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)",
 )
 async def matchhistory(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
-        await interaction.response.send_message("âťŚ RIOT_API_KEY nenĂ­ nastaven.", ephemeral=True)
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
 
     await interaction.response.defer()
@@ -1152,20 +1152,20 @@ async def matchhistory(interaction: discord.Interaction, jmeno: str, tag: str, r
     async with aiohttp.ClientSession() as session:
         puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
         if err == "not_found":
-            await interaction.followup.send(f"âťŚ HrĂˇÄŤ **{jmeno}#{tag}** nenalezen.")
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
             return
         if err:
-            await interaction.followup.send(f"âťŚ Chyba API ({err}).")
+            await interaction.followup.send(f"❌ Chyba API ({err}).")
             return
 
         ids_url = f"https://{routing}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?count=5"
         async with session.get(ids_url, headers=headers) as resp:
             if resp.status != 200:
-                await interaction.followup.send(f"âťŚ Chyba Match API ({resp.status}).")
+                await interaction.followup.send(f"❌ Chyba Match API ({resp.status}).")
                 return
             match_ids = await resp.json()
             if not match_ids:
-                await interaction.followup.send(f"**{jmeno}#{tag}** nemĂˇ ĹľĂˇdnĂ© zĂˇznamy zĂˇpasĹŻ.")
+                await interaction.followup.send(f"**{jmeno}#{tag}** nemá žádné záznamy zápasů.")
                 return
 
         matches = []
@@ -1177,29 +1177,29 @@ async def matchhistory(interaction: discord.Interaction, jmeno: str, tag: str, r
                 if resp.status == 200:
                     matches.append(await resp.json())
 
-    text = f"đź“ś **Match History â€” {jmeno}#{tag}**\n\n"
+    text = f"📜 **Match History — {jmeno}#{tag}**\n\n"
     for i, match in enumerate(matches, 1):
         p = next((x for x in match["info"]["participants"] if x["puuid"] == puuid), None)
         if not p:
             continue
         queue = QUEUE_NAMES.get(match["info"]["queueId"], "Unknown")
         duration = match["info"]["gameDuration"] // 60
-        result = "âś…" if p["win"] else "âťŚ"
+        result = "✅" if p["win"] else "❌"
         kda_str = f"{p['kills']}/{p['deaths']}/{p['assists']}"
         text += f"**#{i}** {result} **{p['championName']}** | {kda_str} | {queue} | {duration}min\n"
 
     await interaction.followup.send(text)
 
 
-@bot.tree.command(name="kda", description="Zobraz prĹŻmÄ›rnĂ© KDA z poslednĂ­ch 10 zĂˇpasĹŻ")
+@bot.tree.command(name="kda", description="Zobraz průměrné KDA z posledních 10 zápasů")
 @app_commands.describe(
-    jmeno="Riot jmĂ©no (napĹ™. Faker)",
-    tag="Riot tag bez # (napĹ™. EUW)",
-    region="Server (vĂ˝chozĂ­: euw1)",
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)",
 )
 async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: str = "euw1"):
     if not RIOT_API_KEY:
-        await interaction.response.send_message("âťŚ RIOT_API_KEY nenĂ­ nastaven.", ephemeral=True)
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
 
     await interaction.response.defer()
@@ -1210,20 +1210,20 @@ async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: st
     async with aiohttp.ClientSession() as session:
         puuid, err = await fetch_puuid(session, jmeno, tag, routing, headers)
         if err == "not_found":
-            await interaction.followup.send(f"âťŚ HrĂˇÄŤ **{jmeno}#{tag}** nenalezen.")
+            await interaction.followup.send(f"❌ Hráč **{jmeno}#{tag}** nenalezen.")
             return
         if err:
-            await interaction.followup.send(f"âťŚ Chyba API ({err}).")
+            await interaction.followup.send(f"❌ Chyba API ({err}).")
             return
 
         ids_url = f"https://{routing}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?count=10"
         async with session.get(ids_url, headers=headers) as resp:
             if resp.status != 200:
-                await interaction.followup.send(f"âťŚ Chyba Match API ({resp.status}).")
+                await interaction.followup.send(f"❌ Chyba Match API ({resp.status}).")
                 return
             match_ids = await resp.json()
             if not match_ids:
-                await interaction.followup.send(f"**{jmeno}#{tag}** nemĂˇ ĹľĂˇdnĂ© zĂˇznamy zĂˇpasĹŻ.")
+                await interaction.followup.send(f"**{jmeno}#{tag}** nemá žádné záznamy zápasů.")
                 return
 
         kills_t = deaths_t = assists_t = wins = count = 0
@@ -1246,7 +1246,7 @@ async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: st
                 count += 1
 
     if count == 0:
-        await interaction.followup.send("âťŚ NepodaĹ™ilo se naÄŤĂ­st zĂˇpasy.")
+        await interaction.followup.send("❌ Nepodařilo se načíst zápasy.")
         return
 
     avg_k = round(kills_t / count, 1)
@@ -1255,22 +1255,22 @@ async def kda(interaction: discord.Interaction, jmeno: str, tag: str, region: st
     ratio = round((kills_t + assists_t) / max(deaths_t, 1), 2)
     winrate = round(wins / count * 100, 1)
 
-    text = f"đź“Š **KDA â€” {jmeno}#{tag}** (poslednĂ­ch {count} zĂˇpasĹŻ)\n\n"
-    text += f"âš”ď¸Ź **Avg KDA:** {avg_k} / {avg_d} / {avg_a}\n"
-    text += f"đź“ **KDA Ratio:** {ratio}\n"
-    text += f"âś… **Winrate:** {winrate}% ({wins}W / {count - wins}L)\n"
+    text = f"📊 **KDA — {jmeno}#{tag}** (posledních {count} zápasů)\n\n"
+    text += f"⚔️ **Avg KDA:** {avg_k} / {avg_d} / {avg_a}\n"
+    text += f"📈 **KDA Ratio:** {ratio}\n"
+    text += f"✅ **Winrate:** {winrate}% ({wins}W / {count - wins}L)\n"
 
     await interaction.followup.send(text)
 
 
-# â”€â”€ LoL profiles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── LoL profiles ─────────────────────────────────────────────────────────────
 
-@bot.tree.command(name="addlolprofile", description="PĹ™idej LoL profil do sledovanĂ˝ch")
+@bot.tree.command(name="addlolprofile", description="Přidej LoL profil do sledovaných")
 @app_commands.describe(
-    label="PĹ™ezdĂ­vka v Discordu (napĹ™. Kuba)",
-    jmeno="Riot jmĂ©no (napĹ™. Faker)",
-    tag="Riot tag bez # (napĹ™. EUW)",
-    region="Server (vĂ˝chozĂ­: euw1)",
+    label="Přezdívka v Discordu (např. Kuba)",
+    jmeno="Riot jméno (např. Faker)",
+    tag="Riot tag bez # (např. EUW)",
+    region="Server (výchozí: euw1)",
 )
 async def addlolprofile(
     interaction: discord.Interaction,
@@ -1284,32 +1284,32 @@ async def addlolprofile(
         (label, jmeno, tag, region.lower()),
     )
     await interaction.response.send_message(
-        f"âś… Profil **{label}** (`{jmeno}#{tag}` / {region.upper()}) pĹ™idĂˇn!"
+        f"✅ Profil **{label}** (`{jmeno}#{tag}` / {region.upper()}) přidán!"
     )
 
 
-@bot.tree.command(name="removelolprofile", description="OdstraĹ LoL profil ze sledovanĂ˝ch")
-@app_commands.describe(label="PĹ™ezdĂ­vka profilu kterĂ˝ chceĹˇ smazat")
+@bot.tree.command(name="removelolprofile", description="Odstraň LoL profil ze sledovaných")
+@app_commands.describe(label="Přezdívka profilu který chceš smazat")
 async def removelolprofile(interaction: discord.Interaction, label: str):
     cursor.execute("DELETE FROM lol_profiles WHERE label = %s", (label,))
     if cursor.rowcount == 0:
         await interaction.response.send_message(
-            f"âťŚ Profil **{label}** nenalezen.", ephemeral=True
+            f"❌ Profil **{label}** nenalezen.", ephemeral=True
         )
     else:
-        await interaction.response.send_message(f"đź—‘ď¸Ź Profil **{label}** odstranÄ›n.")
+        await interaction.response.send_message(f"🗑️ Profil **{label}** odstraněn.")
 
 
-@bot.tree.command(name="addsteamprofile", description="PĹ™idej Steam profil do sledovanĂ˝ch")
+@bot.tree.command(name="addsteamprofile", description="Přidej Steam profil do sledovaných")
 @app_commands.describe(
-    label="PĹ™ezdĂ­vka v Discordu (napĹ™. Kuba)",
+    label="Přezdívka v Discordu (např. Kuba)",
     steamid64="SteamID64 profilu",
 )
 async def addsteamprofile(interaction: discord.Interaction, label: str, steamid64: str):
     normalized_steamid = steamid64.strip()
     if not normalized_steamid.isdigit():
         await interaction.response.send_message(
-            "âťŚ SteamID64 musĂ­ obsahovat jen ÄŤĂ­sla.",
+            "❌ SteamID64 musí obsahovat jen čísla.",
             ephemeral=True,
         )
         return
@@ -1323,33 +1323,33 @@ async def addsteamprofile(interaction: discord.Interaction, label: str, steamid6
         conn.rollback()
         if getattr(exc, "pgcode", None) == "23505":
             await interaction.response.send_message(
-                f"âťŚ Steam profil s ID `{normalized_steamid}` uĹľ existuje.",
+                f"❌ Steam profil s ID `{normalized_steamid}` už existuje.",
                 ephemeral=True,
             )
             return
         raise
 
     await interaction.response.send_message(
-        f"âś… Steam profil **{label}** (`{normalized_steamid}`) pĹ™idĂˇn!"
+        f"✅ Steam profil **{label}** (`{normalized_steamid}`) přidán!"
     )
 
 
-@bot.tree.command(name="removesteamprofile", description="OdstraĹ Steam profil ze sledovanĂ˝ch")
-@app_commands.describe(label="PĹ™ezdĂ­vka Steam profilu kterĂ˝ chceĹˇ smazat")
+@bot.tree.command(name="removesteamprofile", description="Odstraň Steam profil ze sledovaných")
+@app_commands.describe(label="Přezdívka Steam profilu který chceš smazat")
 async def removesteamprofile(interaction: discord.Interaction, label: str):
     cursor.execute("DELETE FROM steam_profiles WHERE label = %s", (label,))
     if cursor.rowcount == 0:
         await interaction.response.send_message(
-            f"âťŚ Steam profil **{label}** nenalezen.", ephemeral=True
+            f"❌ Steam profil **{label}** nenalezen.", ephemeral=True
         )
     else:
-        await interaction.response.send_message(f"đź—‘ď¸Ź Steam profil **{label}** odstranÄ›n.")
+        await interaction.response.send_message(f"🗑️ Steam profil **{label}** odstraněn.")
 
 
-@bot.tree.command(name="teamlol", description="Zobraz ranked stats vĹˇech uloĹľenĂ˝ch profilĹŻ")
+@bot.tree.command(name="teamlol", description="Zobraz ranked stats všech uložených profilů")
 async def teamlol(interaction: discord.Interaction):
     if not RIOT_API_KEY:
-        await interaction.response.send_message("âťŚ RIOT_API_KEY nenĂ­ nastaven.", ephemeral=True)
+        await interaction.response.send_message("❌ RIOT_API_KEY není nastaven.", ephemeral=True)
         return
 
     cursor.execute("SELECT label, riot_name, tag, region FROM lol_profiles ORDER BY id ASC")
@@ -1357,7 +1357,7 @@ async def teamlol(interaction: discord.Interaction):
 
     if not profiles:
         await interaction.response.send_message(
-            "đź“­ Ĺ˝ĂˇdnĂ© profily. PĹ™idej je pomocĂ­ `/addlolprofile`."
+            "📭 Žádné profily. Přidej je pomocí `/addlolprofile`."
         )
         return
 
@@ -1403,22 +1403,22 @@ async def teamlol(interaction: discord.Interaction):
 
     results.sort(key=lambda x: x["sort"], reverse=True)
 
-    text = "đź“Š **Team LoL Rankings**\n\n"
+    text = "📊 **Team LoL Rankings**\n\n"
     for i, r in enumerate(results, 1):
         if r.get("error"):
             err_msg = "nenalezen" if r["error"] == "not_found" else f"chyba ({r['error']})"
-            text += f"**#{i} {r['label']}** (`{r['riot_name']}#{r['tag']}`) â€” âťŚ {err_msg}\n\n"
+            text += f"**#{i} {r['label']}** (`{r['riot_name']}#{r['tag']}`) — ❌ {err_msg}\n\n"
         elif r.get("solo"):
             solo = r["solo"]
             wins, losses = solo["wins"], solo["losses"]
             winrate = round(wins / (wins + losses) * 100, 1)
             emoji = RANK_EMOJIS.get(solo["tier"], "")
             text += (
-                f"**#{i} {r['label']}** â€” {emoji} {solo['tier']} {solo['rank']} {solo['leaguePoints']} LP\n"
-                f"   âś… {wins}W / âťŚ {losses}L â€” winrate **{winrate}%**\n\n"
+                f"**#{i} {r['label']}** — {emoji} {solo['tier']} {solo['rank']} {solo['leaguePoints']} LP\n"
+                f"   ✅ {wins}W / ❌ {losses}L — winrate **{winrate}%**\n\n"
             )
         else:
-            text += f"**#{i} {r['label']}** (`{r['riot_name']}#{r['tag']}`) â€” âš™ď¸Ź Unranked\n\n"
+            text += f"**#{i} {r['label']}** (`{r['riot_name']}#{r['tag']}`) — ⚙️ Unranked\n\n"
 
     await interaction.followup.send(text)
 
@@ -1568,13 +1568,13 @@ async def kontrolajizdenek(interaction: discord.Interaction):
     await interaction.followup.send(text)
 
 
-# â”€â”€ Countdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Countdown ────────────────────────────────────────────────────────────────
 
-@bot.tree.command(name="setcountdown", description="Nastav novĂ˝ odpoÄŤet a uloĹľ ho")
+@bot.tree.command(name="setcountdown", description="Nastav nový odpočet a ulož ho")
 @app_commands.describe(
-    name="NĂˇzev odpoÄŤtu (napĹ™. VĂˇnoce)",
-    year="Rok (napĹ™. 2026)",
-    month="MÄ›sĂ­c (1-12)",
+    name="Název odpočtu (např. Vánoce)",
+    year="Rok (např. 2026)",
+    month="Měsíc (1-12)",
     day="Den (1-31)",
     hour="Hodina (0-23)",
     minute="Minuta (0-59)",
@@ -1594,7 +1594,7 @@ async def setcountdown(
 
         if target_date <= now:
             await interaction.response.send_message(
-                "âťŚ Datum musĂ­ bĂ˝t v budoucnosti!", ephemeral=True
+                "❌ Datum musí být v budoucnosti!", ephemeral=True
             )
             return
 
@@ -1612,16 +1612,16 @@ async def setcountdown(
         minutes = (diff.seconds % 3600) // 60
 
         await interaction.response.send_message(
-            f"âś… OdpoÄŤet **{name}** uloĹľen!\n"
-            f"đź“… CĂ­l: {target_date.strftime('%d.%m.%Y %H:%M')}\n"
-            f"âŹł ZbĂ˝vĂˇ: {days}d {hours}h {minutes}m"
+            f"✅ Odpočet **{name}** uložen!\n"
+            f"📅 Cíl: {target_date.strftime('%d.%m.%Y %H:%M')}\n"
+            f"⏳ Zbývá: {days}d {hours}h {minutes}m"
         )
 
     except ValueError:
-        await interaction.response.send_message("âťŚ NeplatnĂ© datum!", ephemeral=True)
+        await interaction.response.send_message("❌ Neplatné datum!", ephemeral=True)
 
 
-@bot.tree.command(name="countdown", description="Zobraz vĹˇechny aktivnĂ­ odpoÄŤty")
+@bot.tree.command(name="countdown", description="Zobraz všechny aktivní odpočty")
 async def countdown(interaction: discord.Interaction):
     cursor.execute(
         "SELECT id, name, target_ts, created_by FROM countdowns ORDER BY target_ts ASC"
@@ -1629,12 +1629,12 @@ async def countdown(interaction: discord.Interaction):
     rows = cursor.fetchall()
 
     if not rows:
-        await interaction.response.send_message("đź“­ Ĺ˝ĂˇdnĂ© aktivnĂ­ odpoÄŤty.")
+        await interaction.response.send_message("📭 Žádné aktivní odpočty.")
         return
 
     now_ts = int(datetime.now().timestamp())
     finished = []
-    text = "âŹ±ď¸Ź **AktivnĂ­ odpoÄŤty**\n\n"
+    text = "⏱️ **Aktivní odpočty**\n\n"
 
     for row in rows:
         cd_id, name, target_ts, created_by = row
@@ -1642,7 +1642,7 @@ async def countdown(interaction: discord.Interaction):
 
         if remaining <= 0:
             finished.append(cd_id)
-            text += f"âś… **{name}** â€” hotovo! *(pĹ™idal {created_by})*\n"
+            text += f"✅ **{name}** — hotovo! *(přidal {created_by})*\n"
         else:
             days = remaining // 86400
             hours = (remaining % 86400) // 3600
@@ -1650,8 +1650,8 @@ async def countdown(interaction: discord.Interaction):
             seconds = remaining % 60
             target_str = datetime.fromtimestamp(target_ts).strftime("%d.%m.%Y %H:%M")
             text += (
-                f"âŹł **{name}** â€” {days}d {hours}h {minutes}m {seconds}s\n"
-                f"   đź“… {target_str} *(pĹ™idal {created_by})*\n\n"
+                f"⏳ **{name}** — {days}d {hours}h {minutes}m {seconds}s\n"
+                f"   📅 {target_str} *(přidal {created_by})*\n\n"
             )
 
     if finished:

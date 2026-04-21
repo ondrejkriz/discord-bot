@@ -1,0 +1,11 @@
+[Unit]
+Description=Update discord-bot Docker stack from GitHub
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=krizo
+WorkingDirectory=/home/krizo/discord-bot
+ExecStart=/home/krizo/discord-bot/scripts/update-stack.sh /home/krizo/discord-bot

@@ -16,11 +16,11 @@ services:
       retries: 5
 
   bot:
-    image: ghcr.io/ondrejkriz/discord-bot:latest
+    image: discord-bot:local
+    build:
+      context: .
     container_name: discord-bot
     restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
     depends_on:
       db:
         condition: service_healthy
@@ -32,21 +32,6 @@ services:
       YOUTUBE_COOKIES: ${YOUTUBE_COOKIES:-}
       YOUTUBE_GVS_PO_TOKEN: ${YOUTUBE_GVS_PO_TOKEN:-}
       YOUTUBE_PLAYER_PO_TOKEN: ${YOUTUBE_PLAYER_PO_TOKEN:-}
-
-  watchtower:
-    image: containrrr/watchtower:latest
-    container_name: discord-bot-watchtower
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_INCLUDE_RESTARTING: "true"
-      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-60}
-      WATCHTOWER_LABEL_ENABLE: "true"
-    command:
-      - --label-enable
-      - --rolling-restart
 
 volumes:
   postgres_data:

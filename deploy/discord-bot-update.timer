@@ -1,0 +1,10 @@
+[Unit]
+Description=Check GitHub for discord-bot updates
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=discord-bot-update.service
+
+[Install]
+WantedBy=timers.target

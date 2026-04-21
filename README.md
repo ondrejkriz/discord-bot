@@ -85,18 +85,18 @@ The project can run either on a hosted PostgreSQL provider such as Railway or on
 
 The repository includes:
 
-- `docker-compose.yml` with `bot`, `db`, and `watchtower`
-- `.github/workflows/docker-publish.yml` to build and publish an ARM64 image to GitHub Container Registry on every push to `main`
+- `docker-compose.yml` with `bot` and `db`
+- `scripts/update-stack.sh` to pull the latest code and rebuild the bot container
+- `deploy/discord-bot-update.service` and `deploy/discord-bot-update.timer` for automatic updates on Raspberry Pi
+- `.github/workflows/docker-publish.yml` to optionally build and publish an ARM64 image to GitHub Container Registry on every push to `main`
 - `.env.example` with the required environment variables
 
 Setup on the Raspberry Pi:
 
 ```bash
-mkdir -p ~/discord-bot
+git clone https://github.com/ondrejkriz/discord-bot.git ~/discord-bot
 cd ~/discord-bot
-curl -O https://raw.githubusercontent.com/ondrejkriz/discord-bot/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/ondrejkriz/discord-bot/main/.env.example
-mv .env.example .env
+cp .env.example .env
 ```
 
 Fill in `.env`, then start the stack:
@@ -105,16 +105,26 @@ Fill in `.env`, then start the stack:
 docker compose up -d
 ```
 
+Enable automatic updates every 5 minutes:
+
+```bash
+chmod +x scripts/update-stack.sh
+sudo cp deploy/discord-bot-update.service /etc/systemd/system/
+sudo cp deploy/discord-bot-update.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now discord-bot-update.timer
+```
+
 How updates work:
 
-- GitHub Actions builds a new `linux/arm64` image and pushes it to `ghcr.io/ondrejkriz/discord-bot:latest`
-- `watchtower` checks for a new image every 60 seconds by default
-- when a new image is available, it pulls it and restarts only the bot container
+- the timer checks GitHub every 5 minutes
+- if `main` changed, the Raspberry Pi pulls the new commit, rebuilds the bot image locally, and restarts the stack
+- PostgreSQL keeps its data in the persistent Docker volume `postgres_data`
 
 Registry access:
 
-- if the GitHub Container Registry package is public, no extra step is needed on the Raspberry Pi
-- if the package is private, log in once on the Raspberry Pi with `docker login ghcr.io`
+- the GitHub Actions workflow publishes an ARM64 image to GitHub Container Registry
+- if you want to use registry-based auto-updates later, make the package public or log in on the Raspberry Pi with `docker login ghcr.io`
 
 Persistent data:
 

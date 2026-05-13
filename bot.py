@@ -40,7 +40,7 @@ JUMPSCARE_INTERVAL_SECONDS = 1200
 JUMPSCARE_DURATION_SECONDS = 8
 JUMPSCARE_URL = "https://soundcloud.com/theabandonedtrustman/golden-freddy-jumpscare-sound?si=2d01cfeda3704e3cb8d49720ca354a01&utm_source=clipboard&utm_medium=text&utm_campaign=social_sharing"
 PATCH_NOTES_URL = "https://www.leagueoflegends.com/en-us/news/tags/patch-notes/"
-PATCH_NOTES_CHECK_SECONDS = 3600
+PATCH_NOTES_CHECK_SECONDS = 86400
 COOKIE_FILE_PATH = Path("/tmp/youtube-cookies.txt")
 
 

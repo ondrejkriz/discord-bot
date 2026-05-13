@@ -40,6 +40,7 @@ JUMPSCARE_INTERVAL_SECONDS = 1200
 JUMPSCARE_DURATION_SECONDS = 8
 JUMPSCARE_URL = "https://soundcloud.com/theabandonedtrustman/golden-freddy-jumpscare-sound?si=2d01cfeda3704e3cb8d49720ca354a01&utm_source=clipboard&utm_medium=text&utm_campaign=social_sharing"
 PATCH_NOTES_URL = "https://www.leagueoflegends.com/en-us/news/tags/patch-notes/"
+ARC_PATCH_NOTES_URL = "https://arcraiders.com/news"
 PATCH_NOTES_CHECK_SECONDS = 86400
 COOKIE_FILE_PATH = Path("/tmp/youtube-cookies.txt")
 
@@ -127,6 +128,14 @@ cursor.execute("""
     )
 """)
 
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS arc_patch_notes_settings (
+        guild_id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        last_url TEXT DEFAULT NULL
+    )
+""")
+
 # Intents
 intents = discord.Intents.default()
 intents.message_content = True
@@ -163,6 +172,10 @@ patchnotes_group = app_commands.Group(
     name="patchnotes", description="Nastavi automaticke LoL patch notes"
 )
 bot.tree.add_command(patchnotes_group)
+arcpatchnotes_group = app_commands.Group(
+    name="arcpatchnotes", description="Nastavi automaticke ARC Raiders patch notes"
+)
+bot.tree.add_command(arcpatchnotes_group)
 
 
 @bot.event
@@ -559,7 +572,15 @@ def title_from_patch_url(url: str):
     return slug.replace("-", " ").title()
 
 
-async def fetch_latest_patch_notes():
+def title_from_arc_patch_url(url: str):
+    slug = url.rstrip("/").split("/")[-1]
+    match = re.search(r"patch-notes-(\d+)-(\d+)-(\d+)", slug)
+    if match:
+        return f"ARC Raiders Patch Notes {match.group(1)}.{match.group(2)}.{match.group(3)}"
+    return slug.replace("-", " ").title()
+
+
+async def fetch_latest_lol_patch_notes():
     headers = {"User-Agent": "discord-bot patch notes checker"}
     async with aiohttp.ClientSession(headers=headers) as session:
         async with session.get(PATCH_NOTES_URL, timeout=20) as resp:
@@ -586,48 +607,124 @@ async def fetch_latest_patch_notes():
     return {"title": html.unescape(title), "url": url}
 
 
-async def send_patch_notes(channel, patch):
+async def fetch_latest_arc_patch_notes():
+    headers = {"User-Agent": "discord-bot arc patch notes checker"}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(ARC_PATCH_NOTES_URL, timeout=20) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"ARC Raiders news page returned HTTP {resp.status}")
+            page = await resp.text()
+
+    links = re.findall(r'href="([^"]*/news/[^"]*patch[^"]*notes[^"]*)"', page, re.IGNORECASE)
+    if not links:
+        links = re.findall(r"https://arcraiders\.com/news/[^\"'\s]*patch[^\"'\s]*notes[^\"'\s]*", page, re.IGNORECASE)
+    links = [link for link in links if "/news/tag/" not in link]
+
+    if not links:
+        raise RuntimeError("No ARC Raiders patch notes link found.")
+
+    url = links[0]
+    if url.startswith("/"):
+        url = f"https://arcraiders.com{url}"
+    elif url.startswith("http"):
+        url = url
+    else:
+        url = f"https://arcraiders.com/{url.lstrip('/')}"
+
+    title_match = re.search(r"<title>(.*?)</title>", page, re.IGNORECASE | re.DOTALL)
+    title = title_from_arc_patch_url(url)
+    if title_match and title.lower() not in title_match.group(1).lower():
+        title = title_from_arc_patch_url(url)
+
+    return {"title": html.unescape(title), "url": url}
+
+
+async def send_patch_notes(channel, patch, game_name, color, footer):
     embed = discord.Embed(
         title=patch["title"],
         url=patch["url"],
-        description="Nové League of Legends patch notes jsou venku.",
-        color=0x0A84FF,
+        description=f"Nové {game_name} patch notes jsou venku.",
+        color=color,
     )
-    embed.set_footer(text="Riot Games official patch notes")
-    await channel.send(embed=embed)
+    embed.set_footer(text=footer)
+    await channel.send(
+        content="@everyone",
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(everyone=True),
+    )
+
+
+async def send_lol_patch_notes(channel, patch):
+    await send_patch_notes(
+        channel,
+        patch,
+        "League of Legends",
+        0x0A84FF,
+        "Riot Games official patch notes",
+    )
+
+
+async def send_arc_patch_notes(channel, patch):
+    await send_patch_notes(
+        channel,
+        patch,
+        "ARC Raiders",
+        0xFF8A00,
+        "ARC Raiders official patch notes",
+    )
+
+
+async def process_patch_notes_settings(
+    settings_table,
+    fetch_latest,
+    send_latest,
+    log_name,
+):
+    patch = await fetch_latest()
+    cursor.execute(f"SELECT guild_id, channel_id, last_url FROM {settings_table}")
+    rows = cursor.fetchall()
+
+    for guild_id, channel_id, last_url in rows:
+        if last_url == patch["url"]:
+            continue
+
+        channel = bot.get_channel(int(channel_id))
+        if channel is None:
+            guild = bot.get_guild(int(guild_id))
+            channel = guild.get_channel(int(channel_id)) if guild else None
+
+        if channel is None:
+            print(f"/{log_name} skipped guild {guild_id}: channel {channel_id} not found")
+            continue
+
+        await send_latest(channel, patch)
+        cursor.execute(
+            f"""
+            UPDATE {settings_table}
+            SET last_url = %s
+            WHERE guild_id = %s
+            """,
+            (patch["url"], guild_id),
+        )
+        print(f"/{log_name} sent {patch['url']} to guild {guild_id}")
 
 
 async def patch_notes_loop():
     await bot.wait_until_ready()
     while not bot.is_closed():
         try:
-            patch = await fetch_latest_patch_notes()
-            cursor.execute("SELECT guild_id, channel_id, last_url FROM lol_patch_notes_settings")
-            rows = cursor.fetchall()
-
-            for guild_id, channel_id, last_url in rows:
-                if last_url == patch["url"]:
-                    continue
-
-                channel = bot.get_channel(int(channel_id))
-                if channel is None:
-                    guild = bot.get_guild(int(guild_id))
-                    channel = guild.get_channel(int(channel_id)) if guild else None
-
-                if channel is None:
-                    print(f"/patchnotes skipped guild {guild_id}: channel {channel_id} not found")
-                    continue
-
-                await send_patch_notes(channel, patch)
-                cursor.execute(
-                    """
-                    UPDATE lol_patch_notes_settings
-                    SET last_url = %s
-                    WHERE guild_id = %s
-                    """,
-                    (patch["url"], guild_id),
-                )
-                print(f"/patchnotes sent {patch['url']} to guild {guild_id}")
+            await process_patch_notes_settings(
+                "lol_patch_notes_settings",
+                fetch_latest_lol_patch_notes,
+                send_lol_patch_notes,
+                "patchnotes",
+            )
+            await process_patch_notes_settings(
+                "arc_patch_notes_settings",
+                fetch_latest_arc_patch_notes,
+                send_arc_patch_notes,
+                "arcpatchnotes",
+            )
         except Exception as exc:
             print(f"/patchnotes loop failed: {exc!r}")
 
@@ -935,7 +1032,7 @@ async def patchnotes_set(
 
     await interaction.response.defer(ephemeral=True)
     try:
-        patch = await fetch_latest_patch_notes()
+        patch = await fetch_latest_lol_patch_notes()
         cursor.execute(
             """
             INSERT INTO lol_patch_notes_settings (guild_id, channel_id, last_url)
@@ -946,7 +1043,7 @@ async def patchnotes_set(
             """,
             (str(interaction.guild_id), str(channel.id), patch["url"]),
         )
-        await send_patch_notes(channel, patch)
+        await send_lol_patch_notes(channel, patch)
         await interaction.followup.send(
             f"LoL patch notes nastavene do {channel.mention}. "
             f"Poslal jsem aktualni patch: **{patch['title']}**",
@@ -971,7 +1068,7 @@ async def patchnotes_check(interaction: discord.Interaction):
 
     await interaction.response.defer(ephemeral=True)
     try:
-        patch = await fetch_latest_patch_notes()
+        patch = await fetch_latest_lol_patch_notes()
         cursor.execute(
             """
             SELECT channel_id
@@ -988,7 +1085,7 @@ async def patchnotes_check(interaction: discord.Interaction):
             if configured_channel is not None:
                 target_channel = configured_channel
 
-        await send_patch_notes(target_channel, patch)
+        await send_lol_patch_notes(target_channel, patch)
 
         if row:
             cursor.execute(
@@ -1027,6 +1124,116 @@ async def patchnotes_off(interaction: discord.Interaction):
     )
     await interaction.response.send_message(
         "Automaticke LoL patch notes vypnuty.",
+        ephemeral=True,
+    )
+
+
+@arcpatchnotes_group.command(name="set", description="Nastavi kanal pro automaticke ARC Raiders patch notes")
+async def arcpatchnotes_set(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+):
+    if not interaction.guild_id:
+        await interaction.response.send_message(
+            "Tenhle prikaz funguje jen na serveru.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        patch = await fetch_latest_arc_patch_notes()
+        cursor.execute(
+            """
+            INSERT INTO arc_patch_notes_settings (guild_id, channel_id, last_url)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET channel_id = EXCLUDED.channel_id,
+                          last_url = EXCLUDED.last_url
+            """,
+            (str(interaction.guild_id), str(channel.id), patch["url"]),
+        )
+        await send_arc_patch_notes(channel, patch)
+        await interaction.followup.send(
+            f"ARC Raiders patch notes nastavene do {channel.mention}. "
+            f"Poslal jsem aktualni patch: **{patch['title']}**",
+            ephemeral=True,
+        )
+    except Exception as exc:
+        print(f"/arcpatchnotes set failed: {exc!r}")
+        await interaction.followup.send(
+            f"Nepodarilo se nacist ARC Raiders patch notes: {exc}",
+            ephemeral=True,
+        )
+
+
+@arcpatchnotes_group.command(name="check", description="Rucne posle aktualni ARC Raiders patch notes")
+async def arcpatchnotes_check(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message(
+            "Tenhle prikaz funguje jen na serveru.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        patch = await fetch_latest_arc_patch_notes()
+        cursor.execute(
+            """
+            SELECT channel_id
+            FROM arc_patch_notes_settings
+            WHERE guild_id = %s
+            """,
+            (str(interaction.guild_id),),
+        )
+        row = cursor.fetchone()
+
+        target_channel = interaction.channel
+        if row:
+            configured_channel = bot.get_channel(int(row[0]))
+            if configured_channel is not None:
+                target_channel = configured_channel
+
+        await send_arc_patch_notes(target_channel, patch)
+
+        if row:
+            cursor.execute(
+                """
+                UPDATE arc_patch_notes_settings
+                SET last_url = %s
+                WHERE guild_id = %s
+                """,
+                (patch["url"], str(interaction.guild_id)),
+            )
+
+        await interaction.followup.send(
+            f"Poslal jsem aktualni ARC Raiders patch notes do {target_channel.mention}.",
+            ephemeral=True,
+        )
+    except Exception as exc:
+        print(f"/arcpatchnotes check failed: {exc!r}")
+        await interaction.followup.send(
+            f"Nepodarilo se nacist ARC Raiders patch notes: {exc}",
+            ephemeral=True,
+        )
+
+
+@arcpatchnotes_group.command(name="off", description="Vypne automaticke ARC Raiders patch notes")
+async def arcpatchnotes_off(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message(
+            "Tenhle prikaz funguje jen na serveru.",
+            ephemeral=True,
+        )
+        return
+
+    cursor.execute(
+        "DELETE FROM arc_patch_notes_settings WHERE guild_id = %s",
+        (str(interaction.guild_id),),
+    )
+    await interaction.response.send_message(
+        "Automaticke ARC Raiders patch notes vypnuty.",
         ephemeral=True,
     )
 

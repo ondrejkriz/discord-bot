@@ -3,6 +3,8 @@ from discord import app_commands
 from pathlib import Path
 import time
 import asyncio
+import html
+import re
 from collections import deque
 from datetime import datetime, timedelta
 from time import monotonic
@@ -37,6 +39,8 @@ IDLE_DISCONNECT_SECONDS = 300
 JUMPSCARE_INTERVAL_SECONDS = 1200
 JUMPSCARE_DURATION_SECONDS = 8
 JUMPSCARE_URL = "https://soundcloud.com/theabandonedtrustman/golden-freddy-jumpscare-sound?si=2d01cfeda3704e3cb8d49720ca354a01&utm_source=clipboard&utm_medium=text&utm_campaign=social_sharing"
+PATCH_NOTES_URL = "https://www.leagueoflegends.com/en-us/news/tags/patch-notes/"
+PATCH_NOTES_CHECK_SECONDS = 3600
 COOKIE_FILE_PATH = Path("/tmp/youtube-cookies.txt")
 
 
@@ -115,6 +119,14 @@ cursor.execute("""
     )
 """)
 
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS lol_patch_notes_settings (
+        guild_id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        last_url TEXT DEFAULT NULL
+    )
+""")
+
 # Intents
 intents = discord.Intents.default()
 intents.message_content = True
@@ -132,10 +144,13 @@ class MyClient(discord.Client):
         self.jumpscare_enabled_guilds = set()
         self.last_jumpscare_at = {}
         self.voice_automation_task = None
+        self.patch_notes_task = None
 
     async def setup_hook(self):
         if self.voice_automation_task is None:
             self.voice_automation_task = asyncio.create_task(voice_automation_loop())
+        if self.patch_notes_task is None:
+            self.patch_notes_task = asyncio.create_task(patch_notes_loop())
 
 
 bot = MyClient()
@@ -143,6 +158,10 @@ jumpscare_group = app_commands.Group(
     name="jumpscare", description="Zapne nebo vypne pravidelny voice jumpscare"
 )
 bot.tree.add_command(jumpscare_group)
+patchnotes_group = app_commands.Group(
+    name="patchnotes", description="Nastavi automaticke LoL patch notes"
+)
+bot.tree.add_command(patchnotes_group)
 
 
 @bot.event
@@ -528,6 +547,89 @@ async def run_jumpscare(guild: discord.Guild, channel: discord.VoiceChannel):
                 print(f"/jumpscare disconnect failed in guild {guild.id}: {exc!r}")
 
 
+def title_from_patch_url(url: str):
+    slug = url.rstrip("/").split("/")[-1]
+    match = re.search(r"patch-(\d+)-(\d+)-notes", slug)
+    if match:
+        return f"League of Legends Patch {match.group(1)}.{match.group(2)} Notes"
+    return slug.replace("-", " ").title()
+
+
+async def fetch_latest_patch_notes():
+    headers = {"User-Agent": "discord-bot patch notes checker"}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(PATCH_NOTES_URL, timeout=20) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Patch notes page returned HTTP {resp.status}")
+            page = await resp.text()
+
+    links = re.findall(r'href="([^"]*/news/game-updates/[^"]*patch[^"]*notes[^"]*)"', page)
+    if not links:
+        links = re.findall(r"https://www\.leagueoflegends\.com/[^\s\"']+/news/game-updates/[^\"']*patch[^\"']*notes/?", page)
+
+    if not links:
+        raise RuntimeError("No League patch notes link found.")
+
+    url = links[0]
+    if url.startswith("/"):
+        url = f"https://www.leagueoflegends.com{url}"
+    elif url.startswith("http"):
+        url = url
+    else:
+        url = f"https://www.leagueoflegends.com/{url.lstrip('/')}"
+
+    title = title_from_patch_url(url)
+    return {"title": html.unescape(title), "url": url}
+
+
+async def send_patch_notes(channel, patch):
+    embed = discord.Embed(
+        title=patch["title"],
+        url=patch["url"],
+        description="Nové League of Legends patch notes jsou venku.",
+        color=0x0A84FF,
+    )
+    embed.set_footer(text="Riot Games official patch notes")
+    await channel.send(embed=embed)
+
+
+async def patch_notes_loop():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        try:
+            patch = await fetch_latest_patch_notes()
+            cursor.execute("SELECT guild_id, channel_id, last_url FROM lol_patch_notes_settings")
+            rows = cursor.fetchall()
+
+            for guild_id, channel_id, last_url in rows:
+                if last_url == patch["url"]:
+                    continue
+
+                channel = bot.get_channel(int(channel_id))
+                if channel is None:
+                    guild = bot.get_guild(int(guild_id))
+                    channel = guild.get_channel(int(channel_id)) if guild else None
+
+                if channel is None:
+                    print(f"/patchnotes skipped guild {guild_id}: channel {channel_id} not found")
+                    continue
+
+                await send_patch_notes(channel, patch)
+                cursor.execute(
+                    """
+                    UPDATE lol_patch_notes_settings
+                    SET last_url = %s
+                    WHERE guild_id = %s
+                    """,
+                    (patch["url"], guild_id),
+                )
+                print(f"/patchnotes sent {patch['url']} to guild {guild_id}")
+        except Exception as exc:
+            print(f"/patchnotes loop failed: {exc!r}")
+
+        await asyncio.sleep(PATCH_NOTES_CHECK_SECONDS)
+
+
 async def voice_automation_loop():
     await bot.wait_until_ready()
     while not bot.is_closed():
@@ -813,6 +915,116 @@ async def jumpscare_off(interaction: discord.Interaction):
     bot.jumpscare_enabled_guilds.discard(interaction.guild_id)
     bot.last_jumpscare_at.pop(interaction.guild_id, None)
     await interaction.response.send_message("Jumpscare vypnuty.")
+
+
+@patchnotes_group.command(name="set", description="Nastavi kanal pro automaticke LoL patch notes")
+async def patchnotes_set(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+):
+    if not interaction.guild_id:
+        await interaction.response.send_message(
+            "Tenhle prikaz funguje jen na serveru.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        patch = await fetch_latest_patch_notes()
+        cursor.execute(
+            """
+            INSERT INTO lol_patch_notes_settings (guild_id, channel_id, last_url)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET channel_id = EXCLUDED.channel_id,
+                          last_url = EXCLUDED.last_url
+            """,
+            (str(interaction.guild_id), str(channel.id), patch["url"]),
+        )
+        await send_patch_notes(channel, patch)
+        await interaction.followup.send(
+            f"LoL patch notes nastavene do {channel.mention}. "
+            f"Poslal jsem aktualni patch: **{patch['title']}**",
+            ephemeral=True,
+        )
+    except Exception as exc:
+        print(f"/patchnotes set failed: {exc!r}")
+        await interaction.followup.send(
+            f"Nepodarilo se nacist patch notes: {exc}",
+            ephemeral=True,
+        )
+
+
+@patchnotes_group.command(name="check", description="Rucne posle aktualni LoL patch notes")
+async def patchnotes_check(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message(
+            "Tenhle prikaz funguje jen na serveru.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        patch = await fetch_latest_patch_notes()
+        cursor.execute(
+            """
+            SELECT channel_id
+            FROM lol_patch_notes_settings
+            WHERE guild_id = %s
+            """,
+            (str(interaction.guild_id),),
+        )
+        row = cursor.fetchone()
+
+        target_channel = interaction.channel
+        if row:
+            configured_channel = bot.get_channel(int(row[0]))
+            if configured_channel is not None:
+                target_channel = configured_channel
+
+        await send_patch_notes(target_channel, patch)
+
+        if row:
+            cursor.execute(
+                """
+                UPDATE lol_patch_notes_settings
+                SET last_url = %s
+                WHERE guild_id = %s
+                """,
+                (patch["url"], str(interaction.guild_id)),
+            )
+
+        await interaction.followup.send(
+            f"Poslal jsem aktualni patch notes do {target_channel.mention}.",
+            ephemeral=True,
+        )
+    except Exception as exc:
+        print(f"/patchnotes check failed: {exc!r}")
+        await interaction.followup.send(
+            f"Nepodarilo se nacist patch notes: {exc}",
+            ephemeral=True,
+        )
+
+
+@patchnotes_group.command(name="off", description="Vypne automaticke LoL patch notes")
+async def patchnotes_off(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message(
+            "Tenhle prikaz funguje jen na serveru.",
+            ephemeral=True,
+        )
+        return
+
+    cursor.execute(
+        "DELETE FROM lol_patch_notes_settings WHERE guild_id = %s",
+        (str(interaction.guild_id),),
+    )
+    await interaction.response.send_message(
+        "Automaticke LoL patch notes vypnuty.",
+        ephemeral=True,
+    )
 
 
 # ── Riot API helpers ─────────────────────────────────────────────────────────

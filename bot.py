@@ -145,6 +145,7 @@ class MyClient(discord.Client):
         self.last_jumpscare_at = {}
         self.voice_automation_task = None
         self.patch_notes_task = None
+        self.commands_synced = False
 
     async def setup_hook(self):
         if self.voice_automation_task is None:
@@ -167,12 +168,15 @@ bot.tree.add_command(patchnotes_group)
 @bot.event
 async def on_ready():
     print(f"Bot je online jako {bot.user}")
+    if bot.commands_synced:
+        return
+
     for guild in bot.guilds:
         bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
-        print(f"Příkazy synkovány do: {guild.name}")
-    bot.tree.clear_commands(guild=None)
-    await bot.tree.sync()
+        synced_commands = await bot.tree.sync(guild=guild)
+        print(f"Příkazy synkovány do: {guild.name} ({len(synced_commands)} příkazů)")
+
+    bot.commands_synced = True
 
 
 # ── Activity tracking ────────────────────────────────────────────────────────

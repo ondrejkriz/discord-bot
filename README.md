@@ -129,6 +129,7 @@ How updates work:
 
 - the timer checks GitHub every 5 minutes
 - if `main` changed, the Raspberry Pi pulls the new commit, rebuilds the bot image locally, and restarts the stack
+- the updater stores the last successfully deployed commit in `.last_deployed_commit`, so an interrupted build is retried on the next run
 - PostgreSQL keeps its data in the persistent Docker volume `postgres_data`
 
 Registry access:

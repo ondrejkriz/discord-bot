@@ -5,6 +5,7 @@ import time
 import asyncio
 import html
 import re
+import xml.etree.ElementTree as ET
 from collections import deque
 from datetime import datetime, timedelta
 from time import monotonic
@@ -41,6 +42,8 @@ JUMPSCARE_DURATION_SECONDS = 8
 JUMPSCARE_URL = "https://soundcloud.com/theabandonedtrustman/golden-freddy-jumpscare-sound?si=2d01cfeda3704e3cb8d49720ca354a01&utm_source=clipboard&utm_medium=text&utm_campaign=social_sharing"
 PATCH_NOTES_URL = "https://www.leagueoflegends.com/en-us/news/tags/patch-notes/"
 ARC_PATCH_NOTES_URL = "https://arcraiders.com/news"
+WOWHEAD_LIVE_RSS_URL = "https://www.wowhead.com/news/rss/all"
+WOWHEAD_PTR_RSS_URL = "https://www.wowhead.com/ptr/news/rss/all"
 PATCH_NOTES_CHECK_SECONDS = 86400
 COOKIE_FILE_PATH = Path("/tmp/youtube-cookies.txt")
 
@@ -136,6 +139,15 @@ cursor.execute("""
     )
 """)
 
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS wowhead_news_settings (
+        guild_id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        live_last_url TEXT DEFAULT NULL,
+        ptr_last_url TEXT DEFAULT NULL
+    )
+""")
+
 # Intents
 intents = discord.Intents.default()
 intents.message_content = True
@@ -176,6 +188,10 @@ arcpatchnotes_group = app_commands.Group(
     name="arcpatchnotes", description="Nastavi automaticke ARC Raiders patch notes"
 )
 bot.tree.add_command(arcpatchnotes_group)
+wowhead_group = app_commands.Group(
+    name="wowhead", description="Nastavi automaticke Wowhead Live a PTR news"
+)
+bot.tree.add_command(wowhead_group)
 
 
 @bot.event
@@ -639,6 +655,38 @@ async def fetch_latest_arc_patch_notes():
     return {"title": html.unescape(title), "url": url}
 
 
+async def fetch_latest_wowhead_news(feed_url: str, feed_name: str):
+    headers = {"User-Agent": "discord-bot wowhead news checker"}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(feed_url, timeout=20) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Wowhead {feed_name} RSS returned HTTP {resp.status}")
+            rss_text = await resp.text()
+
+    root = ET.fromstring(rss_text)
+    item = root.find("./channel/item")
+    if item is None:
+        raise RuntimeError(f"No Wowhead {feed_name} news item found.")
+
+    title = item.findtext("title") or f"Wowhead {feed_name} News"
+    link = item.findtext("link")
+    description = item.findtext("description") or ""
+
+    if not link:
+        raise RuntimeError(f"Wowhead {feed_name} news item has no URL.")
+
+    description = re.sub(r"<[^>]+>", "", html.unescape(description)).strip()
+    if len(description) > 220:
+        description = description[:217].rstrip() + "..."
+
+    return {
+        "title": html.unescape(title).strip(),
+        "url": html.unescape(link).strip(),
+        "description": description,
+        "feed_name": feed_name,
+    }
+
+
 async def send_patch_notes(channel, patch, game_name, color, footer):
     embed = discord.Embed(
         title=patch["title"],
@@ -671,6 +719,21 @@ async def send_arc_patch_notes(channel, patch):
         "ARC Raiders",
         0xFF8A00,
         "ARC Raiders official patch notes",
+    )
+
+
+async def send_wowhead_news(channel, article):
+    embed = discord.Embed(
+        title=article["title"],
+        url=article["url"],
+        description=article.get("description") or f"Nový Wowhead {article['feed_name']} článek je venku.",
+        color=0xA335EE,
+    )
+    embed.set_footer(text=f"Wowhead News: {article['feed_name']}")
+    await channel.send(
+        content="@everyone",
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(everyone=True),
     )
 
 
@@ -709,6 +772,53 @@ async def process_patch_notes_settings(
         print(f"/{log_name} sent {patch['url']} to guild {guild_id}")
 
 
+async def process_wowhead_news_settings():
+    live_article = await fetch_latest_wowhead_news(WOWHEAD_LIVE_RSS_URL, "Live")
+    ptr_article = await fetch_latest_wowhead_news(WOWHEAD_PTR_RSS_URL, "PTR")
+
+    cursor.execute(
+        """
+        SELECT guild_id, channel_id, live_last_url, ptr_last_url
+        FROM wowhead_news_settings
+        """
+    )
+    rows = cursor.fetchall()
+
+    for guild_id, channel_id, live_last_url, ptr_last_url in rows:
+        channel = bot.get_channel(int(channel_id))
+        if channel is None:
+            guild = bot.get_guild(int(guild_id))
+            channel = guild.get_channel(int(channel_id)) if guild else None
+
+        if channel is None:
+            print(f"/wowhead skipped guild {guild_id}: channel {channel_id} not found")
+            continue
+
+        if live_last_url != live_article["url"]:
+            await send_wowhead_news(channel, live_article)
+            cursor.execute(
+                """
+                UPDATE wowhead_news_settings
+                SET live_last_url = %s
+                WHERE guild_id = %s
+                """,
+                (live_article["url"], guild_id),
+            )
+            print(f"/wowhead sent Live {live_article['url']} to guild {guild_id}")
+
+        if ptr_last_url != ptr_article["url"]:
+            await send_wowhead_news(channel, ptr_article)
+            cursor.execute(
+                """
+                UPDATE wowhead_news_settings
+                SET ptr_last_url = %s
+                WHERE guild_id = %s
+                """,
+                (ptr_article["url"], guild_id),
+            )
+            print(f"/wowhead sent PTR {ptr_article['url']} to guild {guild_id}")
+
+
 async def patch_notes_loop():
     await bot.wait_until_ready()
     while not bot.is_closed():
@@ -725,6 +835,7 @@ async def patch_notes_loop():
                 send_arc_patch_notes,
                 "arcpatchnotes",
             )
+            await process_wowhead_news_settings()
         except Exception as exc:
             print(f"/patchnotes loop failed: {exc!r}")
 
@@ -1234,6 +1345,127 @@ async def arcpatchnotes_off(interaction: discord.Interaction):
     )
     await interaction.response.send_message(
         "Automaticke ARC Raiders patch notes vypnuty.",
+        ephemeral=True,
+    )
+
+
+@wowhead_group.command(name="set", description="Nastavi kanal pro automaticke Wowhead Live a PTR news")
+async def wowhead_set(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+):
+    if not interaction.guild_id:
+        await interaction.response.send_message(
+            "Tenhle prikaz funguje jen na serveru.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        live_article = await fetch_latest_wowhead_news(WOWHEAD_LIVE_RSS_URL, "Live")
+        ptr_article = await fetch_latest_wowhead_news(WOWHEAD_PTR_RSS_URL, "PTR")
+        cursor.execute(
+            """
+            INSERT INTO wowhead_news_settings (guild_id, channel_id, live_last_url, ptr_last_url)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET channel_id = EXCLUDED.channel_id,
+                          live_last_url = EXCLUDED.live_last_url,
+                          ptr_last_url = EXCLUDED.ptr_last_url
+            """,
+            (
+                str(interaction.guild_id),
+                str(channel.id),
+                live_article["url"],
+                ptr_article["url"],
+            ),
+        )
+        await send_wowhead_news(channel, live_article)
+        await send_wowhead_news(channel, ptr_article)
+        await interaction.followup.send(
+            f"Wowhead Live i PTR news nastavene do {channel.mention}. "
+            "Poslal jsem aktualni clanky pro kontrolu.",
+            ephemeral=True,
+        )
+    except Exception as exc:
+        print(f"/wowhead set failed: {exc!r}")
+        await interaction.followup.send(
+            f"Nepodarilo se nacist Wowhead news: {exc}",
+            ephemeral=True,
+        )
+
+
+@wowhead_group.command(name="check", description="Rucne posle aktualni Wowhead Live a PTR news")
+async def wowhead_check(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message(
+            "Tenhle prikaz funguje jen na serveru.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        live_article = await fetch_latest_wowhead_news(WOWHEAD_LIVE_RSS_URL, "Live")
+        ptr_article = await fetch_latest_wowhead_news(WOWHEAD_PTR_RSS_URL, "PTR")
+        cursor.execute(
+            """
+            SELECT channel_id
+            FROM wowhead_news_settings
+            WHERE guild_id = %s
+            """,
+            (str(interaction.guild_id),),
+        )
+        row = cursor.fetchone()
+
+        target_channel = interaction.channel
+        if row:
+            configured_channel = bot.get_channel(int(row[0]))
+            if configured_channel is not None:
+                target_channel = configured_channel
+
+        await send_wowhead_news(target_channel, live_article)
+        await send_wowhead_news(target_channel, ptr_article)
+
+        if row:
+            cursor.execute(
+                """
+                UPDATE wowhead_news_settings
+                SET live_last_url = %s,
+                    ptr_last_url = %s
+                WHERE guild_id = %s
+                """,
+                (live_article["url"], ptr_article["url"], str(interaction.guild_id)),
+            )
+
+        await interaction.followup.send(
+            f"Poslal jsem aktualni Wowhead Live i PTR news do {target_channel.mention}.",
+            ephemeral=True,
+        )
+    except Exception as exc:
+        print(f"/wowhead check failed: {exc!r}")
+        await interaction.followup.send(
+            f"Nepodarilo se nacist Wowhead news: {exc}",
+            ephemeral=True,
+        )
+
+
+@wowhead_group.command(name="off", description="Vypne automaticke Wowhead Live a PTR news")
+async def wowhead_off(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message(
+            "Tenhle prikaz funguje jen na serveru.",
+            ephemeral=True,
+        )
+        return
+
+    cursor.execute(
+        "DELETE FROM wowhead_news_settings WHERE guild_id = %s",
+        (str(interaction.guild_id),),
+    )
+    await interaction.response.send_message(
+        "Automaticke Wowhead Live i PTR news vypnuty.",
         ephemeral=True,
     )
 

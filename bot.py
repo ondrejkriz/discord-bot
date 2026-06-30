@@ -124,13 +124,7 @@ cursor.execute("""
     )
 """)
 
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS blizzard_profiles (
-        id SERIAL PRIMARY KEY,
-        label TEXT NOT NULL,
-        battletag TEXT NOT NULL UNIQUE
-    )
-""")
+cursor.execute("DROP TABLE IF EXISTS blizzard_profiles")
 
 cursor.execute("""
     CREATE TABLE IF NOT EXISTS wow_characters (
@@ -2138,52 +2132,6 @@ async def removesteamprofile(interaction: discord.Interaction, label: str):
         await interaction.response.send_message(f"🗑️ Steam profil **{label}** odstraněn.")
 
 
-@bot.tree.command(name="addblizzardprofile", description="Přidej Blizzard/Battle.net účet do sledovaných")
-@app_commands.describe(
-    label="Přezdívka v Discordu (např. Kuba)",
-    battletag="BattleTag účtu (např. Player#1234)",
-)
-async def addblizzardprofile(interaction: discord.Interaction, label: str, battletag: str):
-    normalized_battletag = battletag.strip()
-    if "#" not in normalized_battletag:
-        await interaction.response.send_message(
-            "❌ BattleTag musí být ve formátu `Jmeno#1234`.",
-            ephemeral=True,
-        )
-        return
-
-    try:
-        cursor.execute(
-            "INSERT INTO blizzard_profiles (label, battletag) VALUES (%s, %s)",
-            (label, normalized_battletag),
-        )
-    except psycopg2.Error as exc:
-        conn.rollback()
-        if getattr(exc, "pgcode", None) == "23505":
-            await interaction.response.send_message(
-                f"❌ Blizzard profil `{normalized_battletag}` už existuje.",
-                ephemeral=True,
-            )
-            return
-        raise
-
-    await interaction.response.send_message(
-        f"✅ Blizzard profil **{label}** (`{normalized_battletag}`) přidán!"
-    )
-
-
-@bot.tree.command(name="removeblizzardprofile", description="Odstraň Blizzard/Battle.net účet ze sledovaných")
-@app_commands.describe(label="Přezdívka Blizzard profilu který chceš smazat")
-async def removeblizzardprofile(interaction: discord.Interaction, label: str):
-    cursor.execute("DELETE FROM blizzard_profiles WHERE label = %s", (label,))
-    if cursor.rowcount == 0:
-        await interaction.response.send_message(
-            f"❌ Blizzard profil **{label}** nenalezen.", ephemeral=True
-        )
-    else:
-        await interaction.response.send_message(f"🗑️ Blizzard profil **{label}** odstraněn.")
-
-
 @bot.tree.command(name="addwowchar", description="Přidej WoW postavu do sledovaných")
 @app_commands.describe(
     label="Přezdívka postavy v botovi (např. Ondra)",
@@ -2427,18 +2375,16 @@ async def teamlol(interaction: discord.Interaction):
     await interaction.followup.send(text)
 
 
-@bot.tree.command(name="kontrolajizdenek", description="Zkontroluj ulozene LoL, Steam a Blizzard profily")
+@bot.tree.command(name="kontrolajizdenek", description="Zkontroluj ulozene LoL a Steam profily")
 async def kontrolajizdenek(interaction: discord.Interaction):
     cursor.execute("SELECT label, riot_name, tag, region FROM lol_profiles ORDER BY id ASC")
     lol_profiles = cursor.fetchall()
     cursor.execute("SELECT label, steam_id_64 FROM steam_profiles ORDER BY id ASC")
     steam_profiles = cursor.fetchall()
-    cursor.execute("SELECT label, battletag FROM blizzard_profiles ORDER BY id ASC")
-    blizzard_profiles = cursor.fetchall()
 
-    if not lol_profiles and not steam_profiles and not blizzard_profiles:
+    if not lol_profiles and not steam_profiles:
         await interaction.response.send_message(
-            "📭 Žádné LoL, Steam ani Blizzard profily. Přidej je pomocí `/addlolprofile`, `/addsteamprofile` nebo `/addblizzardprofile`."
+            "📭 Žádné LoL ani Steam profily. Přidej je pomocí `/addlolprofile` nebo `/addsteamprofile`."
         )
         return
 
@@ -2450,7 +2396,6 @@ async def kontrolajizdenek(interaction: discord.Interaction):
     steam_online_profiles = []
     steam_offline_profiles = []
     steam_failed_profiles = []
-    blizzard_unknown_profiles = []
 
     async with aiohttp.ClientSession() as session:
         if lol_profiles:
@@ -2522,11 +2467,6 @@ async def kontrolajizdenek(interaction: discord.Interaction):
             else:
                 steam_failed_profiles.append("❌ Steam kontrola přeskočena — STEAM_API_KEY není nastaven.")
 
-        for label, battletag in blizzard_profiles:
-            blizzard_unknown_profiles.append(
-                f"❔ **{label}** (`{battletag}`) — Battle.net online stav a aktuální hra nejsou dostupné přes veřejné Blizzard API"
-            )
-
     text = "🎫 **Kontrola jízdenek**\n\n"
     text += "## LoL\n"
 
@@ -2576,17 +2516,6 @@ async def kontrolajizdenek(interaction: discord.Interaction):
         text += "⚠️ **Nepodařilo se načíst:**\n"
         for line in steam_failed_profiles:
             text += f"{line}\n"
-
-    text += "\n## Blizzard / Battle.net\n"
-
-    if blizzard_unknown_profiles:
-        text += "❔ **Uložené účty:**\n"
-        for line in blizzard_unknown_profiles:
-            text += f"{line}\n"
-        text += "\n"
-        text += "ℹ️ Blizzard veřejné API neumí podle BattleTagu zjistit, jestli je účet online nebo jakou hru právě hraje.\n"
-    else:
-        text += "📭 Žádné Blizzard profily.\n"
 
     await interaction.followup.send(text)
 

@@ -1764,6 +1764,7 @@ async def fetch_raiderio_profile(session, region, realm_slug, character_name):
 def format_mplus_run(run):
     dungeon = run.get("short_name") or run.get("dungeon") or "?"
     level = run.get("mythic_level", "?")
+    keystone_emoji = get_server_emoji("keystone")
     score = run.get("score")
     score_text = f", {round(score)} score" if isinstance(score, (int, float)) else ""
     clear_time = run.get("clear_time_ms")
@@ -1771,7 +1772,7 @@ def format_mplus_run(run):
     timed = ""
     if isinstance(clear_time, int) and isinstance(par_time, int):
         timed = " ✅" if clear_time <= par_time else " ❌"
-    return f"+{level} {dungeon}{score_text}{timed}"
+    return f"{keystone_emoji} +{level} {dungeon}{score_text}{timed}"
 
 
 def get_raiderio_score(profile):

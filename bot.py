@@ -129,11 +129,16 @@ cursor.execute("DROP TABLE IF EXISTS blizzard_profiles")
 cursor.execute("""
     CREATE TABLE IF NOT EXISTS wow_characters (
         id SERIAL PRIMARY KEY,
-        label TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
         region TEXT NOT NULL DEFAULT 'eu',
         realm_slug TEXT NOT NULL,
         character_name TEXT NOT NULL
     )
+""")
+cursor.execute("ALTER TABLE wow_characters DROP CONSTRAINT IF EXISTS wow_characters_label_key")
+cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS wow_characters_character_key
+    ON wow_characters (label, region, realm_slug, character_name)
 """)
 
 cursor.execute("""
@@ -2250,10 +2255,8 @@ async def addwowchar(
             """
             INSERT INTO wow_characters (label, region, realm_slug, character_name)
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (label)
-            DO UPDATE SET region = EXCLUDED.region,
-                          realm_slug = EXCLUDED.realm_slug,
-                          character_name = EXCLUDED.character_name
+            ON CONFLICT (label, region, realm_slug, character_name)
+            DO NOTHING
             """,
             (label, region, realm_slug, character_name),
         )
@@ -2267,15 +2270,43 @@ async def addwowchar(
 
 
 @bot.tree.command(name="removewowchar", description="Odstraň WoW postavu ze sledovaných")
-@app_commands.describe(label="Přezdívka WoW postavy kterou chceš smazat")
-async def removewowchar(interaction: discord.Interaction, label: str):
-    cursor.execute("DELETE FROM wow_characters WHERE label = %s", (label,))
+@app_commands.describe(
+    label="Přezdívka člověka/postavy kterou chceš smazat",
+    realm="Volitelně realm konkrétní postavy",
+    character="Volitelně jméno konkrétní postavy",
+    region="Volitelně region konkrétní postavy",
+)
+async def removewowchar(
+    interaction: discord.Interaction,
+    label: str,
+    realm: str = "",
+    character: str = "",
+    region: str = "eu",
+):
+    if realm and character:
+        cursor.execute(
+            """
+            DELETE FROM wow_characters
+            WHERE label = %s AND region = %s AND realm_slug = %s AND character_name = %s
+            """,
+            (
+                label,
+                normalize_wow_region(region),
+                normalize_wow_realm(realm),
+                normalize_wow_character(character),
+            ),
+        )
+    else:
+        cursor.execute("DELETE FROM wow_characters WHERE label = %s", (label,))
+
     if cursor.rowcount == 0:
         await interaction.response.send_message(
             f"❌ WoW postava **{label}** nenalezena.", ephemeral=True
         )
     else:
-        await interaction.response.send_message(f"🗑️ WoW postava **{label}** odstraněna.")
+        await interaction.response.send_message(
+            f"🗑️ Odstraněno WoW záznamů pro **{label}**: **{cursor.rowcount}**."
+        )
 
 
 @bot.tree.command(name="wowchars", description="Zobraz uložené WoW postavy")
@@ -2284,7 +2315,7 @@ async def wowchars(interaction: discord.Interaction):
         """
         SELECT label, region, realm_slug, character_name
         FROM wow_characters
-        ORDER BY id ASC
+        ORDER BY label ASC, id ASC
         """
     )
     rows = cursor.fetchall()
@@ -2308,7 +2339,7 @@ async def pve(interaction: discord.Interaction):
         """
         SELECT label, region, realm_slug, character_name
         FROM wow_characters
-        ORDER BY id ASC
+        ORDER BY label ASC, id ASC
         """
     )
     rows = cursor.fetchall()
@@ -2361,7 +2392,7 @@ async def pvp(interaction: discord.Interaction):
         """
         SELECT label, region, realm_slug, character_name
         FROM wow_characters
-        ORDER BY id ASC
+        ORDER BY label ASC, id ASC
         """
     )
     rows = cursor.fetchall()

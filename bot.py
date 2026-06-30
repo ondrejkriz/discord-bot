@@ -1698,7 +1698,7 @@ def slugify_wow_pvp_part(value):
 
 
 def get_wow_pvp_bracket_slugs(bracket_name, default_slugs, profile):
-    if bracket_name != "Shuffle" or not profile:
+    if bracket_name not in ("Shuffle", "Blitz") or not profile:
         return default_slugs
 
     class_slug = slugify_wow_pvp_part(profile.get("class"))
@@ -1706,7 +1706,8 @@ def get_wow_pvp_bracket_slugs(bracket_name, default_slugs, profile):
     if not class_slug or not spec_slug:
         return default_slugs
 
-    return [f"shuffle-{class_slug}-{spec_slug}", *default_slugs]
+    prefix = "shuffle" if bracket_name == "Shuffle" else "blitz"
+    return [f"{prefix}-{class_slug}-{spec_slug}", *default_slugs]
 
 
 def append_grouped_character_line(groups, label, line):

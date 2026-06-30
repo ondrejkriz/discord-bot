@@ -1792,14 +1792,16 @@ def format_pve_character_line(profile):
 
     best_runs = profile.get("mythic_plus_best_runs") or []
     recent_runs = profile.get("mythic_plus_recent_runs") or []
-    best_text = ", ".join(format_mplus_run(run) for run in best_runs[:2]) or "žádné"
-    recent_text = ", ".join(format_mplus_run(run) for run in recent_runs[:2]) or "žádné"
+    best_lines = [format_mplus_run(run) for run in best_runs[:2]]
+    recent_lines = [format_mplus_run(run) for run in recent_runs[:2]]
+    best_text = "\n".join(f"      {line}" for line in best_lines) or "      žádné"
+    recent_text = "\n".join(f"      {line}" for line in recent_lines) or "      žádné"
 
     return (
         f"{icons} **{name}-{realm}** ({active_spec} {char_class}) — "
         f"RIO **{round(score)}**\n"
-        f"    Best: {best_text}\n"
-        f"    Recent: {recent_text}"
+        f"    Best:\n{best_text}\n"
+        f"    Recent:\n{recent_text}"
     )
 
 

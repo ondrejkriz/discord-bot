@@ -1591,11 +1591,12 @@ async def fetch_steam_summaries(session, steam_ids):
     return {player["steamid"]: player for player in players}, None
 
 
-WOW_PVP_BRACKETS = {
-    "2v2": "2v2",
-    "3v3": "3v3",
-    "rbg": "RBG",
-}
+WOW_PVP_BRACKETS = [
+    ("2v2", ["2v2"]),
+    ("3v3", ["3v3"]),
+    ("Shuffle", ["shuffle"]),
+    ("Blitz", ["blitz", "battleground-blitz"]),
+]
 
 
 def normalize_wow_region(region: str):
@@ -1714,6 +1715,20 @@ async def fetch_wow_pvp_bracket(session, token, region, realm_slug, character_na
         if resp.status != 200:
             return None, str(resp.status)
         return await resp.json(), None
+
+
+async def fetch_wow_pvp_bracket_any(session, token, region, realm_slug, character_name, brackets):
+    last_error = None
+    for bracket in brackets:
+        data, err = await fetch_wow_pvp_bracket(
+            session, token, region, realm_slug, character_name, bracket
+        )
+        if not err:
+            return data, None
+        if err != "not_found":
+            return data, err
+        last_error = err
+    return None, last_error or "not_found"
 
 
 def format_pvp_bracket(name, data):
@@ -2279,9 +2294,9 @@ async def pvp(interaction: discord.Interaction):
 
         for label, region, realm_slug, character_name in rows:
             bracket_lines = []
-            for bracket, bracket_name in WOW_PVP_BRACKETS.items():
-                data, err = await fetch_wow_pvp_bracket(
-                    session, token, region, realm_slug, character_name, bracket
+            for bracket_name, bracket_slugs in WOW_PVP_BRACKETS:
+                data, err = await fetch_wow_pvp_bracket_any(
+                    session, token, region, realm_slug, character_name, bracket_slugs
                 )
                 if err == "not_found":
                     bracket_lines.append(f"{bracket_name}: no data")

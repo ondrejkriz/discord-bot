@@ -1628,7 +1628,7 @@ WOW_HEALER_SPECS = {
 }
 
 WOW_PVP_RATING_EMOJIS = [
-    (2400, ["legend", "elite"]),
+    (2400, ["elite"]),
     (2100, ["duelist"]),
     (1800, ["rival"]),
     (1400, ["Challenger", "challenger"]),

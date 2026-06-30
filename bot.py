@@ -1677,8 +1677,9 @@ def format_grouped_character_sections(title, groups, empty_message):
 
     sections = [title]
     for label, lines in groups.items():
-        sections.append(f"**{label}**")
-        sections.extend(f"  {line}" for line in lines)
+        sections.append("")
+        sections.append(f"━━━━━━━━ **{label.upper()}** ━━━━━━━━")
+        sections.extend(f"  ↳ {line}" for line in lines)
     return "\n".join(sections)
 
 

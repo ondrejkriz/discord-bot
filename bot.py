@@ -18,6 +18,8 @@ from config import (
     DATABASE_SSLMODE,
     RIOT_API_KEY,
     STEAM_API_KEY,
+    BLIZZARD_CLIENT_ID,
+    BLIZZARD_CLIENT_SECRET,
     YOUTUBE_COOKIES,
     YOUTUBE_GVS_PO_TOKEN,
     YOUTUBE_PLAYER_PO_TOKEN,
@@ -120,6 +122,16 @@ cursor.execute("""
         id SERIAL PRIMARY KEY,
         label TEXT NOT NULL,
         steam_id_64 TEXT NOT NULL UNIQUE
+    )
+""")
+
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS wow_characters (
+        id SERIAL PRIMARY KEY,
+        label TEXT NOT NULL UNIQUE,
+        region TEXT NOT NULL DEFAULT 'eu',
+        realm_slug TEXT NOT NULL,
+        character_name TEXT NOT NULL
     )
 """)
 
@@ -1598,6 +1610,144 @@ async def fetch_steam_summaries(session, steam_ids):
     return {player["steamid"]: player for player in players}, None
 
 
+WOW_PVP_BRACKETS = {
+    "2v2": "2v2",
+    "3v3": "3v3",
+    "rbg": "RBG",
+}
+
+
+def normalize_wow_region(region: str):
+    region = region.strip().lower()
+    if region in ("eu", "us", "kr", "tw"):
+        return region
+    return "eu"
+
+
+def normalize_wow_realm(realm: str):
+    return realm.strip().lower().replace("'", "").replace(" ", "-")
+
+
+def normalize_wow_character(character: str):
+    return character.strip().lower()
+
+
+def split_discord_message(text: str, limit: int = 1900):
+    chunks = []
+    current = ""
+    for line in text.splitlines():
+        next_current = f"{current}\n{line}" if current else line
+        if len(next_current) > limit:
+            if current:
+                chunks.append(current)
+            current = line
+        else:
+            current = next_current
+    if current:
+        chunks.append(current)
+    return chunks or [text]
+
+
+async def send_long_followup(interaction: discord.Interaction, text: str):
+    for chunk in split_discord_message(text):
+        await interaction.followup.send(chunk)
+
+
+async def fetch_raiderio_profile(session, region, realm_slug, character_name):
+    params = {
+        "region": region,
+        "realm": realm_slug,
+        "name": character_name,
+        "fields": "mythic_plus_scores_by_season:current,mythic_plus_best_runs,mythic_plus_recent_runs",
+    }
+    async with session.get("https://raider.io/api/v1/characters/profile", params=params) as resp:
+        if resp.status == 404:
+            return None, "not_found"
+        if resp.status != 200:
+            return None, str(resp.status)
+        return await resp.json(), None
+
+
+def format_mplus_run(run):
+    dungeon = run.get("short_name") or run.get("dungeon") or "?"
+    level = run.get("mythic_level", "?")
+    score = run.get("score")
+    score_text = f", {round(score)} score" if isinstance(score, (int, float)) else ""
+    clear_time = run.get("clear_time_ms")
+    par_time = run.get("par_time_ms")
+    timed = ""
+    if isinstance(clear_time, int) and isinstance(par_time, int):
+        timed = " ✅" if clear_time <= par_time else " ❌"
+    return f"+{level} {dungeon}{score_text}{timed}"
+
+
+def format_pve_profile(label, profile):
+    name = profile.get("name", label)
+    realm = profile.get("realm", "?")
+    char_class = profile.get("class", "?")
+    active_spec = profile.get("active_spec_name") or "?"
+    scores = profile.get("mythic_plus_scores_by_season") or []
+    score = 0
+    if scores:
+        score = scores[0].get("scores", {}).get("all", 0)
+
+    best_runs = profile.get("mythic_plus_best_runs") or []
+    recent_runs = profile.get("mythic_plus_recent_runs") or []
+    best_text = ", ".join(format_mplus_run(run) for run in best_runs[:3]) or "žádné"
+    recent_text = ", ".join(format_mplus_run(run) for run in recent_runs[:3]) or "žádné"
+
+    return (
+        f"**{label}** — {name}-{realm} ({active_spec} {char_class})\n"
+        f"RIO: **{round(score)}**\n"
+        f"Best: {best_text}\n"
+        f"Recent: {recent_text}"
+    )
+
+
+async def fetch_blizzard_token(session):
+    if not BLIZZARD_CLIENT_ID or not BLIZZARD_CLIENT_SECRET:
+        return None, "missing_credentials"
+
+    auth = aiohttp.BasicAuth(BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET)
+    data = {"grant_type": "client_credentials"}
+    async with session.post("https://oauth.battle.net/token", data=data, auth=auth) as resp:
+        if resp.status != 200:
+            return None, str(resp.status)
+        payload = await resp.json()
+        return payload.get("access_token"), None
+
+
+async def fetch_wow_pvp_bracket(session, token, region, realm_slug, character_name, bracket):
+    url = (
+        f"https://{region}.api.blizzard.com/profile/wow/character/"
+        f"{realm_slug}/{character_name}/pvp-bracket/{bracket}"
+    )
+    params = {
+        "namespace": f"profile-{region}",
+        "locale": "en_GB",
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+    async with session.get(url, params=params, headers=headers) as resp:
+        if resp.status == 404:
+            return None, "not_found"
+        if resp.status != 200:
+            return None, str(resp.status)
+        return await resp.json(), None
+
+
+def format_pvp_bracket(name, data):
+    if not data:
+        return f"{name}: no data"
+
+    rating = data.get("rating", 0)
+    season = data.get("season_match_statistics") or {}
+    played = season.get("played", 0)
+    won = season.get("won", 0)
+    lost = season.get("lost", max(played - won, 0))
+    winrate = round((won / played) * 100, 1) if played else 0
+    return f"{name}: **{rating}** ({won}W/{lost}L, {winrate}%)"
+
+
 # ── Riot commands ─────────────────────────────────────────────────────────────
 
 @bot.tree.command(name="lol", description="Zkontroluj LoL rank a winrate hráče")
@@ -1999,6 +2149,172 @@ async def removesteamprofile(interaction: discord.Interaction, label: str):
         )
     else:
         await interaction.response.send_message(f"🗑️ Steam profil **{label}** odstraněn.")
+
+
+@bot.tree.command(name="addwowchar", description="Přidej WoW postavu do sledovaných")
+@app_commands.describe(
+    label="Přezdívka postavy v botovi (např. Ondra)",
+    region="Region: eu/us/kr/tw (výchozí: eu)",
+    realm="Realm slug nebo název realmu (např. drak-thul)",
+    character="Jméno postavy",
+)
+async def addwowchar(
+    interaction: discord.Interaction,
+    label: str,
+    realm: str,
+    character: str,
+    region: str = "eu",
+):
+    region = normalize_wow_region(region)
+    realm_slug = normalize_wow_realm(realm)
+    character_name = normalize_wow_character(character)
+
+    try:
+        cursor.execute(
+            """
+            INSERT INTO wow_characters (label, region, realm_slug, character_name)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (label)
+            DO UPDATE SET region = EXCLUDED.region,
+                          realm_slug = EXCLUDED.realm_slug,
+                          character_name = EXCLUDED.character_name
+            """,
+            (label, region, realm_slug, character_name),
+        )
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+
+    await interaction.response.send_message(
+        f"✅ WoW postava **{label}** (`{character_name}-{realm_slug}` / {region.upper()}) uložena."
+    )
+
+
+@bot.tree.command(name="removewowchar", description="Odstraň WoW postavu ze sledovaných")
+@app_commands.describe(label="Přezdívka WoW postavy kterou chceš smazat")
+async def removewowchar(interaction: discord.Interaction, label: str):
+    cursor.execute("DELETE FROM wow_characters WHERE label = %s", (label,))
+    if cursor.rowcount == 0:
+        await interaction.response.send_message(
+            f"❌ WoW postava **{label}** nenalezena.", ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(f"🗑️ WoW postava **{label}** odstraněna.")
+
+
+@bot.tree.command(name="wowchars", description="Zobraz uložené WoW postavy")
+async def wowchars(interaction: discord.Interaction):
+    cursor.execute(
+        """
+        SELECT label, region, realm_slug, character_name
+        FROM wow_characters
+        ORDER BY id ASC
+        """
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        await interaction.response.send_message(
+            "Zatím nejsou uložené žádné WoW postavy. Přidej je přes `/addwowchar`.",
+            ephemeral=True,
+        )
+        return
+
+    text = "📜 **Uložené WoW postavy**\n\n"
+    for label, region, realm_slug, character_name in rows:
+        text += f"• **{label}** — `{character_name}-{realm_slug}` / {region.upper()}\n"
+
+    await interaction.response.send_message(text)
+
+
+@bot.tree.command(name="pve", description="Zobraz Raider.IO score a M+ klíče všech uložených WoW postav")
+async def pve(interaction: discord.Interaction):
+    cursor.execute(
+        """
+        SELECT label, region, realm_slug, character_name
+        FROM wow_characters
+        ORDER BY id ASC
+        """
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        await interaction.response.send_message(
+            "Zatím nejsou uložené žádné WoW postavy. Přidej je přes `/addwowchar`.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer()
+    sections = ["⚔️ **WoW PVE — Raider.IO + M+ klíče**"]
+    async with aiohttp.ClientSession() as session:
+        for label, region, realm_slug, character_name in rows:
+            profile, err = await fetch_raiderio_profile(
+                session, region, realm_slug, character_name
+            )
+            if err == "not_found":
+                sections.append(f"**{label}** — `{character_name}-{realm_slug}` nenalezeno na Raider.IO")
+                continue
+            if err:
+                sections.append(f"**{label}** — Raider.IO chyba `{err}`")
+                continue
+            sections.append(format_pve_profile(label, profile))
+
+    await send_long_followup(interaction, "\n\n".join(sections))
+
+
+@bot.tree.command(name="pvp", description="Zobraz PvP rating a winrate všech uložených WoW postav")
+async def pvp(interaction: discord.Interaction):
+    if not BLIZZARD_CLIENT_ID or not BLIZZARD_CLIENT_SECRET:
+        await interaction.response.send_message(
+            "❌ BLIZZARD_CLIENT_ID nebo BLIZZARD_CLIENT_SECRET není nastaven.",
+            ephemeral=True,
+        )
+        return
+
+    cursor.execute(
+        """
+        SELECT label, region, realm_slug, character_name
+        FROM wow_characters
+        ORDER BY id ASC
+        """
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        await interaction.response.send_message(
+            "Zatím nejsou uložené žádné WoW postavy. Přidej je přes `/addwowchar`.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer()
+    sections = ["🛡️ **WoW PVP — rating + winrate**"]
+    async with aiohttp.ClientSession() as session:
+        token, token_err = await fetch_blizzard_token(session)
+        if token_err:
+            await interaction.followup.send(
+                f"❌ Nepodařilo se získat Blizzard token: `{token_err}`",
+                ephemeral=True,
+            )
+            return
+
+        for label, region, realm_slug, character_name in rows:
+            bracket_lines = []
+            for bracket, bracket_name in WOW_PVP_BRACKETS.items():
+                data, err = await fetch_wow_pvp_bracket(
+                    session, token, region, realm_slug, character_name, bracket
+                )
+                if err == "not_found":
+                    bracket_lines.append(f"{bracket_name}: no data")
+                elif err:
+                    bracket_lines.append(f"{bracket_name}: chyba `{err}`")
+                else:
+                    bracket_lines.append(format_pvp_bracket(bracket_name, data))
+
+            sections.append(
+                f"**{label}** — `{character_name}-{realm_slug}` / {region.upper()}\n"
+                + "\n".join(bracket_lines)
+            )
+
+    await send_long_followup(interaction, "\n\n".join(sections))
 
 
 @bot.tree.command(name="teamlol", description="Zobraz ranked stats všech uložených profilů")

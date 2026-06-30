@@ -1598,6 +1598,29 @@ WOW_PVP_BRACKETS = [
     ("Blitz", ["blitz", "battleground-blitz"]),
 ]
 
+WOW_CLASS_EMOJIS = {
+    "death knight": "dk",
+    "demon hunter": "dh",
+    "druid": "druid",
+    "evoker": "evoker",
+    "hunter": "hunter",
+    "mage": "mage",
+    "monk": "monk",
+    "paladin": "paladin",
+    "priest": "priest",
+    "rogue": "rogue",
+    "shaman": "shaman",
+    "warlock": "warlock",
+    "warrior": "warrior",
+}
+
+WOW_HEALER_SPECS = {
+    "discipline",
+    "holy",
+    "mistweaver",
+    "preservation",
+    "restoration",
+}
 
 def normalize_wow_region(region: str):
     region = region.strip().lower()
@@ -1612,6 +1635,46 @@ def normalize_wow_realm(realm: str):
 
 def normalize_wow_character(character: str):
     return character.strip().lower()
+
+
+def get_server_emoji(name):
+    emoji_name = str(name or "").strip().strip(":")
+    if not emoji_name:
+        return ""
+    emoji = discord.utils.get(bot.emojis, name=emoji_name)
+    return str(emoji) if emoji else f":{emoji_name}:"
+
+
+def get_wow_class_emoji(class_name):
+    emoji_name = WOW_CLASS_EMOJIS.get(str(class_name or "").strip().lower(), "")
+    return get_server_emoji(emoji_name)
+
+
+def get_wow_role_emoji(spec_name):
+    spec_key = str(spec_name or "").strip().lower()
+    if spec_key in WOW_HEALER_SPECS:
+        return get_server_emoji("healer")
+    return get_server_emoji("dps")
+
+
+def get_wow_character_icons(class_name, spec_name):
+    icons = [get_wow_class_emoji(class_name), get_wow_role_emoji(spec_name)]
+    return " ".join(icon for icon in icons if icon)
+
+
+def append_grouped_character_line(groups, label, line):
+    groups.setdefault(label, []).append(line)
+
+
+def format_grouped_character_sections(title, groups, empty_message):
+    if not groups:
+        return f"{title}\n\n{empty_message}"
+
+    sections = [title]
+    for label, lines in groups.items():
+        sections.append(f"**{label}**")
+        sections.extend(f"  {line}" for line in lines)
+    return "\n".join(sections)
 
 
 def split_discord_message(text: str, limit: int = 1900):
@@ -1663,26 +1726,31 @@ def format_mplus_run(run):
     return f"+{level} {dungeon}{score_text}{timed}"
 
 
-def format_pve_profile(label, profile):
-    name = profile.get("name", label)
+def get_raiderio_score(profile):
+    scores = profile.get("mythic_plus_scores_by_season") or []
+    if not scores:
+        return 0
+    return scores[0].get("scores", {}).get("all", 0) or 0
+
+
+def format_pve_character_line(profile):
+    name = profile.get("name", "?")
     realm = profile.get("realm", "?")
     char_class = profile.get("class", "?")
     active_spec = profile.get("active_spec_name") or "?"
-    scores = profile.get("mythic_plus_scores_by_season") or []
-    score = 0
-    if scores:
-        score = scores[0].get("scores", {}).get("all", 0)
+    score = get_raiderio_score(profile)
+    icons = get_wow_character_icons(char_class, active_spec)
 
     best_runs = profile.get("mythic_plus_best_runs") or []
     recent_runs = profile.get("mythic_plus_recent_runs") or []
-    best_text = ", ".join(format_mplus_run(run) for run in best_runs[:3]) or "žádné"
-    recent_text = ", ".join(format_mplus_run(run) for run in recent_runs[:3]) or "žádné"
+    best_text = ", ".join(format_mplus_run(run) for run in best_runs[:2]) or "žádné"
+    recent_text = ", ".join(format_mplus_run(run) for run in recent_runs[:2]) or "žádné"
 
     return (
-        f"**{label}** — {name}-{realm} ({active_spec} {char_class})\n"
-        f"RIO: **{round(score)}**\n"
-        f"Best: {best_text}\n"
-        f"Recent: {recent_text}"
+        f"{icons} **{name}-{realm}** ({active_spec} {char_class}) — "
+        f"RIO **{round(score)}**\n"
+        f"    Best: {best_text}\n"
+        f"    Recent: {recent_text}"
     )
 
 
@@ -1742,6 +1810,18 @@ def format_pvp_bracket(name, data):
     lost = season.get("lost", max(played - won, 0))
     winrate = round((won / played) * 100, 1) if played else 0
     return f"{name}: **{rating}** ({won}W/{lost}L, {winrate}%)"
+
+
+def format_pvp_character_line(character_name, realm_slug, region, profile, bracket_lines):
+    char_class = profile.get("class", "?") if profile else "?"
+    active_spec = (profile.get("active_spec_name") or "?") if profile else "?"
+    display_name = profile.get("name", character_name) if profile else character_name
+    display_realm = profile.get("realm", realm_slug) if profile else realm_slug
+    icons = get_wow_character_icons(char_class, active_spec)
+    return (
+        f"{icons} **{display_name}-{display_realm}** ({active_spec} {char_class}, {region.upper()})\n"
+        + "\n".join(f"    {line}" for line in bracket_lines)
+    )
 
 
 # ── Riot commands ─────────────────────────────────────────────────────────────
@@ -2240,21 +2320,32 @@ async def pve(interaction: discord.Interaction):
         return
 
     await interaction.response.defer()
-    sections = ["⚔️ **WoW PVE — Raider.IO + M+ klíče**"]
+    groups = {}
+    failed = []
     async with aiohttp.ClientSession() as session:
         for label, region, realm_slug, character_name in rows:
             profile, err = await fetch_raiderio_profile(
                 session, region, realm_slug, character_name
             )
             if err == "not_found":
-                sections.append(f"**{label}** — `{character_name}-{realm_slug}` nenalezeno na Raider.IO")
+                failed.append(f"❌ **{label}** — `{character_name}-{realm_slug}` nenalezeno na Raider.IO")
                 continue
             if err:
-                sections.append(f"**{label}** — Raider.IO chyba `{err}`")
+                failed.append(f"❌ **{label}** — `{character_name}-{realm_slug}` Raider.IO chyba `{err}`")
                 continue
-            sections.append(format_pve_profile(label, profile))
+            if get_raiderio_score(profile) <= 0:
+                continue
+            append_grouped_character_line(groups, label, format_pve_character_line(profile))
 
-    await send_long_followup(interaction, "\n\n".join(sections))
+    text = format_grouped_character_sections(
+        "⚔️ **WoW PVE — Raider.IO + M+ klíče**",
+        groups,
+        "Nikdo z uložených postav nemá RIO score větší než 0.",
+    )
+    if failed:
+        text += "\n\n⚠️ **Nepodařilo se načíst:**\n" + "\n".join(failed)
+
+    await send_long_followup(interaction, text)
 
 
 @bot.tree.command(name="pvp", description="Zobraz PvP rating a winrate všech uložených WoW postav")
@@ -2282,7 +2373,7 @@ async def pvp(interaction: discord.Interaction):
         return
 
     await interaction.response.defer()
-    sections = ["🛡️ **WoW PVP — rating + winrate**"]
+    groups = {}
     async with aiohttp.ClientSession() as session:
         token, token_err = await fetch_blizzard_token(session)
         if token_err:
@@ -2293,6 +2384,9 @@ async def pvp(interaction: discord.Interaction):
             return
 
         for label, region, realm_slug, character_name in rows:
+            profile, _ = await fetch_raiderio_profile(
+                session, region, realm_slug, character_name
+            )
             bracket_lines = []
             for bracket_name, bracket_slugs in WOW_PVP_BRACKETS:
                 data, err = await fetch_wow_pvp_bracket_any(
@@ -2305,12 +2399,20 @@ async def pvp(interaction: discord.Interaction):
                 else:
                     bracket_lines.append(format_pvp_bracket(bracket_name, data))
 
-            sections.append(
-                f"**{label}** — `{character_name}-{realm_slug}` / {region.upper()}\n"
-                + "\n".join(bracket_lines)
+            append_grouped_character_line(
+                groups,
+                label,
+                format_pvp_character_line(
+                    character_name, realm_slug, region, profile, bracket_lines
+                ),
             )
 
-    await send_long_followup(interaction, "\n\n".join(sections))
+    text = format_grouped_character_sections(
+        "🛡️ **WoW PVP — rating + winrate**",
+        groups,
+        "Žádné uložené postavy se nepodařilo vypsat.",
+    )
+    await send_long_followup(interaction, text)
 
 
 @bot.tree.command(name="teamlol", description="Zobraz ranked stats všech uložených profilů")

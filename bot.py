@@ -1667,6 +1667,22 @@ def get_wow_character_icons(class_name, spec_name):
     return " ".join(icon for icon in icons if icon)
 
 
+def slugify_wow_pvp_part(value):
+    return re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+
+
+def get_wow_pvp_bracket_slugs(bracket_name, default_slugs, profile):
+    if bracket_name != "Shuffle" or not profile:
+        return default_slugs
+
+    class_slug = slugify_wow_pvp_part(profile.get("class"))
+    spec_slug = slugify_wow_pvp_part(profile.get("active_spec_name"))
+    if not class_slug or not spec_slug:
+        return default_slugs
+
+    return [f"shuffle-{class_slug}-{spec_slug}", *default_slugs]
+
+
 def append_grouped_character_line(groups, label, line):
     groups.setdefault(label, []).append(line)
 
@@ -2421,6 +2437,9 @@ async def pvp(interaction: discord.Interaction):
             )
             bracket_lines = []
             for bracket_name, bracket_slugs in WOW_PVP_BRACKETS:
+                bracket_slugs = get_wow_pvp_bracket_slugs(
+                    bracket_name, bracket_slugs, profile
+                )
                 data, err = await fetch_wow_pvp_bracket_any(
                     session, token, region, realm_slug, character_name, bracket_slugs
                 )

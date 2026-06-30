@@ -1852,14 +1852,17 @@ def format_pvp_bracket(name, data):
         return f"{name}: no data"
 
     rating = data.get("rating", 0)
-    season = data.get("season_match_statistics") or {}
+    is_shuffle = name == "Shuffle"
+    season = data.get("season_round_statistics") if is_shuffle else None
+    season = season or data.get("season_match_statistics") or {}
     played = season.get("played", 0)
     won = season.get("won", 0)
     lost = season.get("lost", max(played - won, 0))
     winrate = round((won / played) * 100, 1) if played else 0
     rating_emoji = get_wow_pvp_rating_emoji(rating)
     rating_prefix = f"{rating_emoji} " if rating_emoji else ""
-    return f"{name}: {rating_prefix}**{rating}** ({won}W/{lost}L, {winrate}%)"
+    stat_label = "rounds" if is_shuffle else "games"
+    return f"{name}: {rating_prefix}**{rating}** ({won}W/{lost}L {stat_label}, {winrate}%)"
 
 
 def format_pvp_character_line(character_name, realm_slug, region, profile, bracket_lines):

@@ -1627,6 +1627,14 @@ WOW_HEALER_SPECS = {
     "restoration",
 }
 
+WOW_PVP_RATING_EMOJIS = [
+    (2400, ["legend", "elite"]),
+    (2100, ["duelist"]),
+    (1800, ["rival"]),
+    (1400, ["Challenger", "challenger"]),
+    (1000, ["combatant"]),
+]
+
 def normalize_wow_region(region: str):
     region = region.strip().lower()
     if region in ("eu", "us", "kr", "tw"):
@@ -1648,6 +1656,24 @@ def get_server_emoji(name):
         return ""
     emoji = discord.utils.get(bot.emojis, name=emoji_name)
     return str(emoji) if emoji else f":{emoji_name}:"
+
+
+def get_first_server_emoji(names):
+    for name in names:
+        emoji_name = str(name or "").strip().strip(":")
+        if not emoji_name:
+            continue
+        emoji = discord.utils.get(bot.emojis, name=emoji_name)
+        if emoji:
+            return str(emoji)
+    return f":{names[0]}:" if names else ""
+
+
+def get_wow_pvp_rating_emoji(rating):
+    for minimum_rating, emoji_names in WOW_PVP_RATING_EMOJIS:
+        if rating >= minimum_rating:
+            return get_first_server_emoji(emoji_names)
+    return ""
 
 
 def get_wow_class_emoji(class_name):
@@ -1831,7 +1857,9 @@ def format_pvp_bracket(name, data):
     won = season.get("won", 0)
     lost = season.get("lost", max(played - won, 0))
     winrate = round((won / played) * 100, 1) if played else 0
-    return f"{name}: **{rating}** ({won}W/{lost}L, {winrate}%)"
+    rating_emoji = get_wow_pvp_rating_emoji(rating)
+    rating_prefix = f"{rating_emoji} " if rating_emoji else ""
+    return f"{name}: {rating_prefix}**{rating}** ({won}W/{lost}L, {winrate}%)"
 
 
 def format_pvp_character_line(character_name, realm_slug, region, profile, bracket_lines):
